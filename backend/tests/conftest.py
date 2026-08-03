@@ -4,6 +4,8 @@ import os
 os.environ["MEGURI_DATABASE_URL"] = "postgresql+psycopg://meguri:meguri@localhost:5433/meguri"
 # 测试不触网：圣地数据源固定 fake（各测试再经 dependency_overrides 注入固定数据集）
 os.environ["MEGURI_SEICHI_MODE"] = "fake"
+os.environ["MEGURI_TRANSIT_MODE"] = "fake"
+os.environ["MEGURI_HOURS_MODE"] = "fake"
 
 import pytest
 

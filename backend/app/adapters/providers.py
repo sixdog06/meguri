@@ -7,8 +7,15 @@ MEGURI_SEICHI_MODE 控制（#4，与 LLM 解耦——真实 LLM 尚未接入，�
 """
 
 from app.adapters.anitabi import AnitabiSeichiRepository
-from app.adapters.fakes import FakeLLMGateway, FakeSeichiRepository, FakeTransitClient
-from app.adapters.ports import LLMGateway, SeichiRepository, TransitClient
+from app.adapters.fakes import (
+    FakeLLMGateway,
+    FakeOpeningHours,
+    FakeSeichiRepository,
+    FakeTransitClient,
+)
+from app.adapters.otp import OTPTransitClient
+from app.adapters.overpass import OverpassOpeningHours
+from app.adapters.ports import LLMGateway, OpeningHoursSource, SeichiRepository, TransitClient
 from app.config import get_settings
 
 
@@ -29,6 +36,14 @@ def get_seichi_repository() -> SeichiRepository:
 
 
 def get_transit_client() -> TransitClient:
-    if get_settings().adapter_mode == "fake":
-        return FakeTransitClient()
-    _live_not_available("TransitClient")
+    settings = get_settings()
+    if settings.transit_mode == "live":
+        return OTPTransitClient(settings.otp_base_url)
+    return FakeTransitClient()
+
+
+def get_opening_hours_source() -> OpeningHoursSource:
+    settings = get_settings()
+    if settings.hours_mode == "live":
+        return OverpassOpeningHours(settings.overpass_url)
+    return FakeOpeningHours()

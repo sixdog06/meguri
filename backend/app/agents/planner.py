@@ -10,11 +10,11 @@
 序列化（asdict）发生在工具/持久化边界。
 """
 
-import math
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
 from app.adapters.ports import Seichi
+from app.geo import haversine_km
 
 WALK_MAX_KM = 2.0  # 超过此距离按车程估算
 WALK_KMH = 5.0
@@ -30,16 +30,29 @@ class TransitLeg:
 
     本 schema（mode / duration_minutes / fare_yen / estimate）即 #6 OTP 的
     数据契约——#6 只换数据源（haversine 距离估算 → OTP 真实查询），不动 schema。
+    degraded/note 为降级提示字段：OTP 不可达或区域未覆盖时保留估算段并标记。
     """
 
     from_id: str
     to_id: str
-    mode: str  # walk / drive
+    mode: str  # walk / drive / transit（OTP 真实查询后为 walk / transit）
     distance_km: float
     duration_minutes: int
     estimate: bool = True
-    fare_yen: int | None = None  # #6 由 OTP 填值
+    fare_yen: int | None = None  # 日本 GTFS 常缺票价数据，拿不到保持 None
     cross_day: bool = False  # True = 每天末尾到次日开头的连接段
+    degraded: bool = False  # True = 交通查询失败/未覆盖，已保留估算（明确降级提示）
+    note: str | None = None
+
+
+@dataclass
+class StopCheck:
+    """单站时间校验结果（#6）：计划到达时间 + 开放时间校验。"""
+
+    seichi_id: str
+    arrive_time: str  # "HH:MM" 计划到达
+    open: bool | None = None  # None = 开放时间未知（不误标）
+    note: str | None = None
 
 
 @dataclass
@@ -47,6 +60,7 @@ class ItineraryDay:
     day: int
     seichi: list[Seichi]
     legs: list[TransitLeg] = field(default_factory=list)
+    checks: list[StopCheck] = field(default_factory=list)
 
 
 @dataclass
@@ -58,15 +72,6 @@ class ItinerarySnapshot:
     work: str | None = None
     area: str | None = None
     budget: dict | None = None  # 预算只留结构，由预算服务（后续票）填值
-
-
-def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
-    r = 6371.0
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    dp = math.radians(lat2 - lat1)
-    dl = math.radians(lng2 - lng1)
-    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
-    return 2 * r * math.asin(math.sqrt(a))
 
 
 def _distance(a: Seichi, b: Seichi) -> float:

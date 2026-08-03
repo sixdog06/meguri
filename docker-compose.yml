@@ -20,9 +20,25 @@ services:
     environment:
       MEGURI_DATABASE_URL: postgresql+psycopg://meguri:meguri@db:5432/meguri
       MEGURI_ADAPTER_MODE: fake
+      MEGURI_TRANSIT_MODE: live
+      MEGURI_OTP_BASE_URL: http://otp:8080/otp
+      MEGURI_HOURS_MODE: live
     depends_on:
       db:
         condition: service_healthy
+      otp:
+        condition: service_started
+
+  # OTP（ADR-0003）：graph 由 otp/download.sh + otp/build.sh 构建（幂等）。
+  # data/ 里至少要有裁剪好的 OSM pbf 才能启动（--load 需要 graph.obj）。
+  otp:
+    image: opentripplanner/opentripplanner:2.6.0
+    command: --load --serve
+    volumes:
+      - ./otp/data:/var/opentripplanner
+    ports:
+      - "8081:8080"
+    mem_limit: 4g
 
   web:
     build: ./frontend

@@ -7,6 +7,10 @@ cd "$(dirname "$0")"
 docker compose up -d db
 
 export MEGURI_DATABASE_URL=postgresql+psycopg://meguri:meguri@localhost:5433/meguri
+# 交通/开放时间走本地 OTP（otp/download.sh + otp/build.sh 先建 graph，
+# docker compose up -d otp 起服务；OTP 未起时 Navigator 自动降级为估算段）
+export MEGURI_TRANSIT_MODE=live
+export MEGURI_HOURS_MODE=live
 
 # Ctrl-C 时把两个后台进程一起收掉
 trap 'kill 0' EXIT

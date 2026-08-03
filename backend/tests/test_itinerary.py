@@ -218,7 +218,7 @@ def test_规划进度事件经SSE发出(monkeypatch):
     ]
 
     stages = [item["data"]["stage"] for item in items if item["event"] == "planning"]
-    assert stages == ["检索中", "聚类中", "排序中", "完成"]
+    assert stages == ["检索中", "聚类中", "排序中", "校验中", "完成"]
     assert items[-1]["event"] == "done"
 
 

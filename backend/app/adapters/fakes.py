@@ -93,5 +93,33 @@ class FakeSeichiRepository:
 
 
 class FakeTransitClient:
-    def route(self, origin: tuple[float, float], destination: tuple[float, float]) -> dict[str, Any]:
-        return {"mode": "fake", "duration_minutes": 0, "fare_yen": 0, "estimate": True}
+    """默认 fake：estimate=True 表示"没有真实数据"，Navigator 保留原估算段。
+
+    scripted 提供时按序返回（模拟真实查询结果，供 Navigator 测试）。
+    """
+
+    def __init__(self, scripted: list[dict[str, Any]] | None = None) -> None:
+        self._scripted = list(scripted or [])
+        self.calls: list[tuple] = []  # 每次 route 的 (origin, destination, depart_at)
+
+    def route(
+        self,
+        origin: tuple[float, float],
+        destination: tuple[float, float],
+        *,
+        depart_at: Any = None,
+    ) -> dict[str, Any]:
+        self.calls.append((origin, destination, depart_at))
+        if self._scripted:
+            return self._scripted.pop(0)
+        return {"mode": "fake", "duration_minutes": 0, "fare_yen": None, "estimate": True}
+
+
+class FakeOpeningHours:
+    """按 (lat, lng) 键控的开放时间 fake。"""
+
+    def __init__(self, hours: dict[tuple[float, float], str] | None = None) -> None:
+        self._hours = dict(hours or {})
+
+    def opening_hours(self, lat: float, lng: float) -> str | None:
+        return self._hours.get((lat, lng))

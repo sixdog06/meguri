@@ -12,8 +12,13 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.adapters.ports import LLMGateway, SeichiRepository
-from app.adapters.providers import get_llm_gateway, get_seichi_repository
+from app.adapters.ports import LLMGateway, OpeningHoursSource, SeichiRepository, TransitClient
+from app.adapters.providers import (
+    get_llm_gateway,
+    get_opening_hours_source,
+    get_seichi_repository,
+    get_transit_client,
+)
 from app.agents.events import EventBus, event_bus
 from app.agents.orchestrator import ConversationNotFound, Orchestrator
 from app.agents.tools import PlanItineraryTool, SearchSeichiTool, ToolRegistry
@@ -61,22 +66,34 @@ class TransitLegOut(BaseModel):
     """交通段：相邻两个圣地之间（或天与天之间）的衔接。
 
     schema（mode/duration_minutes/fare_yen/estimate）即 #6 OTP 的数据契约；
-    本票为距离估算（estimate=True），fare_yen 留空。"""
+    OTP 查询失败/未覆盖时保留估算并 degraded=True 显式降级。"""
 
     from_id: str  # 圣地 id（无 id 时为快照内序号）
     to_id: str
-    mode: str  # walk / drive
+    mode: str  # walk / drive（估算）/ transit（OTP 真实）
     distance_km: float
     duration_minutes: int
     estimate: bool
     fare_yen: int | None = None
     cross_day: bool = False  # True = 每天末尾到次日开头的连接段
+    degraded: bool = False  # True = 交通查询失败/未覆盖，已保留估算（降级提示）
+    note: str | None = None
+
+
+class StopCheckOut(BaseModel):
+    """单站时间校验：计划到达时间 + 开放时间（None = 未知不误标）。"""
+
+    seichi_id: str
+    arrive_time: str
+    open: bool | None = None
+    note: str | None = None
 
 
 class ItineraryDayOut(BaseModel):
     day: int
     seichi: list[SeichiCandidate]
     legs: list[TransitLegOut]
+    checks: list[StopCheckOut] = []
 
 
 class ItineraryOut(BaseModel):
@@ -108,15 +125,18 @@ class MessageOut(BaseModel):
 
 def get_tool_registry(
     repository: SeichiRepository = Depends(get_seichi_repository),
+    transit: TransitClient = Depends(get_transit_client),
+    hours: OpeningHoursSource = Depends(get_opening_hours_source),
 ) -> ToolRegistry:
-    """生产 wiring：注册 Scout 的 search_seichi 工具（#4）。
+    """生产 wiring：注册 Scout 的 search_seichi 工具（#4）与 Planner 的
+    plan_itinerary 工具（#5，#6 起经 Navigator 做交通/时间校验）。
 
-    每请求构建，SeichiRepository 经 FastAPI 依赖注入——测试在 HTTP 缝
-    override get_seichi_repository 即换 fake 数据源。
+    每请求构建，外部依赖经 FastAPI 依赖注入——测试在 HTTP 缝
+    override 对应 provider 即换 fake。
     """
     registry = ToolRegistry()
     registry.register(SearchSeichiTool(repository))
-    registry.register(PlanItineraryTool(repository))
+    registry.register(PlanItineraryTool(repository, transit, hours))
     return registry
 
 

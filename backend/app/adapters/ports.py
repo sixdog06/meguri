@@ -6,6 +6,7 @@ fakes (app.adapters.fakes); live implementations arrive with later tickets.
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Protocol
 
 
@@ -40,4 +41,23 @@ class SeichiRepository(Protocol):
 
 
 class TransitClient(Protocol):
-    def route(self, origin: tuple[float, float], destination: tuple[float, float]) -> dict[str, Any]: ...
+    """交通查询端口（ADR-0003：OTP）。
+
+    返回 dict 契约：{"mode", "duration_minutes", "fare_yen", "estimate"}——
+    estimate=True 表示"没有真实数据"（fake/降级），调用方保留原估算段；
+    estimate=False 表示真实查询结果，替换估算段。异常上抛由调用方降级。
+    """
+
+    def route(
+        self,
+        origin: tuple[float, float],
+        destination: tuple[float, float],
+        *,
+        depart_at: datetime | None = None,
+    ) -> dict[str, Any]: ...
+
+
+class OpeningHoursSource(Protocol):
+    """开放时间数据源（OSM opening_hours）。返回 None = 未知（不误标）。"""
+
+    def opening_hours(self, lat: float, lng: float) -> str | None: ...

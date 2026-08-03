@@ -26,6 +26,17 @@ def test_live_seichi_mode_wires_anitabi_repository(monkeypatch):
     assert isinstance(providers.get_seichi_repository(), anitabi.AnitabiSeichiRepository)
 
 
+def test_live_transit_mode_wires_otp_client(monkeypatch):
+    from app.adapters import otp, overpass
+
+    monkeypatch.setenv("MEGURI_TRANSIT_MODE", "live")
+    monkeypatch.setenv("MEGURI_HOURS_MODE", "live")
+    providers.get_settings.cache_clear()
+
+    assert isinstance(providers.get_transit_client(), otp.OTPTransitClient)
+    assert isinstance(providers.get_opening_hours_source(), overpass.OverpassOpeningHours)
+
+
 def test_live_adapter_mode_raises_until_live_llm_exists(monkeypatch):
     monkeypatch.setenv("MEGURI_ADAPTER_MODE", "live")
     providers.get_settings.cache_clear()

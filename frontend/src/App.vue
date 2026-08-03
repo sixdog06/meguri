@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import SeichiMap from './components/SeichiMap.vue'
-import type { ChatMessage, Itinerary, ItineraryDay, SeichiCandidate, TransitLeg } from './types'
+import type { ChatMessage, Itinerary, ItineraryDay, SeichiCandidate, StopCheck, TransitLeg } from './types'
 import { dayColor } from './types'
 
 const STORAGE_KEY = 'meguri_conversation_id'
@@ -23,6 +23,7 @@ const progressLabels: Record<string, string> = {
 const legModeLabels: Record<string, string> = {
   walk: '步行',
   drive: '车程',
+  transit: '换乘',
 }
 
 function legLabel(leg: TransitLeg): string {
@@ -41,6 +42,11 @@ function legBetween(day: ItineraryDay, i: number): TransitLeg | undefined {
 /** 跨天连接段：每天末尾到次日开头（挂在出发天 legs 末尾）。 */
 function crossDayLeg(day: ItineraryDay): TransitLeg | undefined {
   return day.legs.find((l) => l.cross_day)
+}
+
+/** 单站时间校验结果（计划到达时间 + 开放时间）。 */
+function checkOf(day: ItineraryDay, seichiId: string | null): StopCheck | undefined {
+  return day.checks.find((c) => c.seichi_id === seichiId)
 }
 
 let eventSource: EventSource | null = null
@@ -158,16 +164,24 @@ onBeforeUnmount(() => eventSource?.close())
           </h3>
           <ol class="day-stops">
             <template v-for="(s, i) in day.seichi" :key="s.id ?? s.name">
-              <li class="stop">{{ s.name }}</li>
-              <li v-if="legBetween(day, i)" class="leg">
+              <li class="stop">
+                {{ s.name }}
+                <span v-if="checkOf(day, s.id)" class="arrive">{{ checkOf(day, s.id)!.arrive_time }} 到</span>
+                <span v-if="checkOf(day, s.id)?.open === false" class="warn" :title="checkOf(day, s.id)!.note ?? ''">
+                  可能闭馆
+                </span>
+              </li>
+              <li v-if="legBetween(day, i)" class="leg" :title="legBetween(day, i)!.note ?? ''">
                 ↓ {{ legLabel(legBetween(day, i)!) }}
                 <span v-if="legBetween(day, i)!.estimate" class="estimate">估算</span>
+                <span v-if="legBetween(day, i)!.degraded" class="degraded">降级</span>
               </li>
             </template>
           </ol>
-          <p v-if="crossDayLeg(day)" class="leg cross-day">
+          <p v-if="crossDayLeg(day)" class="leg cross-day" :title="crossDayLeg(day)!.note ?? ''">
             → 次日：{{ legLabel(crossDayLeg(day)!) }}
             <span v-if="crossDayLeg(day)!.estimate" class="estimate">估算</span>
+            <span v-if="crossDayLeg(day)!.degraded" class="degraded">降级</span>
           </p>
         </div>
       </section>
@@ -277,6 +291,27 @@ onBeforeUnmount(() => eventSource?.close())
   padding: 0 0.3rem;
   font-size: 0.75rem;
   margin-left: 0.25rem;
+}
+.degraded {
+  background: #fee2e2;
+  color: #b91c1c;
+  border-radius: 4px;
+  padding: 0 0.3rem;
+  font-size: 0.75rem;
+  margin-left: 0.25rem;
+}
+.arrive {
+  color: #6b7280;
+  font-size: 0.8rem;
+  margin-left: 0.4rem;
+}
+.warn {
+  background: #fee2e2;
+  color: #b91c1c;
+  border-radius: 4px;
+  padding: 0 0.3rem;
+  font-size: 0.75rem;
+  margin-left: 0.4rem;
 }
 .error {
   color: #dc2626;

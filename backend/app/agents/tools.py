@@ -8,7 +8,8 @@ from collections.abc import Callable
 from dataclasses import asdict
 from typing import Any, Protocol
 
-from app.adapters.ports import Seichi, SeichiRepository
+from app.adapters.ports import OpeningHoursSource, Seichi, SeichiRepository, TransitClient
+from app.agents.navigator import validate_itinerary
 from app.agents.planner import plan_itinerary
 
 
@@ -63,8 +64,15 @@ class PlanItineraryTool:
 
     MAX_DAYS = 7
 
-    def __init__(self, repository: SeichiRepository) -> None:
+    def __init__(
+        self,
+        repository: SeichiRepository,
+        transit: TransitClient | None = None,
+        hours: OpeningHoursSource | None = None,
+    ) -> None:
         self._repository = repository
+        self._transit = transit
+        self._hours = hours
         self.structured: dict[str, Any] | None = None
         self.progress_sink: Callable[[str], None] | None = None
 
@@ -90,6 +98,10 @@ class PlanItineraryTool:
         snapshot = plan_itinerary(seichi, days, progress=self._progress)
         snapshot.work = work
         snapshot.area = area
+        # Navigator：真实交通段替换估算 + 开放时间与时刻校验（降级不报错）
+        validate_itinerary(
+            snapshot, self._transit, self._hours, progress=self._progress
+        )
         self._progress("完成")
 
         self.structured = asdict(snapshot)

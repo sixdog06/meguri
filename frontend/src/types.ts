@@ -23,22 +23,33 @@ export interface MessagePayload {
 
 /** 交通段：相邻两个圣地之间（或天与天之间）的衔接。
  *  schema（mode/duration_minutes/fare_yen/estimate）即 #6 OTP 的数据契约；
- *  当前为距离估算（estimate 恒为 true），fare_yen 留空。 */
+ *  OTP 查询失败/未覆盖时保留估算并 degraded=true 显式降级。 */
 export interface TransitLeg {
   from_id: string // 圣地 id（无 id 时为快照内序号）
   to_id: string
-  mode: string // walk / drive
+  mode: string // walk / drive（估算）/ transit（OTP 真实）
   distance_km: number
   duration_minutes: number
   estimate: boolean
   fare_yen: number | null
   cross_day: boolean // true = 每天末尾到次日开头的连接段
+  degraded: boolean // true = 交通查询失败/未覆盖，已保留估算（降级提示）
+  note: string | null
+}
+
+/** 单站时间校验：计划到达时间 + 开放时间（open 为 null = 未知不误标）。 */
+export interface StopCheck {
+  seichi_id: string
+  arrive_time: string
+  open: boolean | null
+  note: string | null
 }
 
 export interface ItineraryDay {
   day: number
   seichi: SeichiCandidate[]
   legs: TransitLeg[]
+  checks: StopCheck[]
 }
 
 /** 行程快照：按天组织的圣地序列 + 交通段；预算只留结构。 */
