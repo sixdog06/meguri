@@ -6,6 +6,8 @@ cd "$(dirname "$0")"
 
 docker compose up -d db
 
+export MEGURI_DATABASE_URL=postgresql+psycopg://meguri:meguri@localhost:5433/meguri
+
 # Ctrl-C 时把两个后台进程一起收掉
 trap 'kill 0' EXIT
 
