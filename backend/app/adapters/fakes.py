@@ -10,8 +10,10 @@ from typing import Any
 class FakeLLMGateway:
     def __init__(self, scripted: list[str] | None = None) -> None:
         self._scripted = list(scripted or [])
+        self.calls: list[list[dict[str, str]]] = []  # 每次 complete 收到的消息，供测试断言
 
     def complete(self, messages: list[dict[str, str]]) -> str:
+        self.calls.append(messages)
         if self._scripted:
             return self._scripted.pop(0)
         return "fake-llm-response"
