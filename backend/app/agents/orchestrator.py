@@ -23,7 +23,7 @@ from app.adapters.ports import LLMGateway
 from app.agents.events import EventBus, event_bus
 from app.agents.tools import ToolRegistry
 from app.agents.tracing import InMemoryTracer, Tracer
-from app.models import Conversation, Message
+from app.models import Conversation, Itinerary, Message
 
 
 class ConversationNotFound(Exception):
@@ -73,10 +73,19 @@ class Orchestrator:
             for message in conversation.messages
         ]
 
+        # 注入进度回调（约定通道，见 Tool 协议）：支持进度上报的工具经此
+        # 把各阶段进度发布到 SSE
+        for tool in self._tools.list():
+            if hasattr(tool, "progress_sink"):
+                tool.progress_sink = lambda stage: self._bus.publish(
+                    conversation_key, "planning", {"stage": stage}
+                )
+
         reply_text = ""
         # 工具经 structured 约定通道（见 Tool 协议）产出的结构化结果，
         # 按工具名收集进消息 payload / API 响应
-        tool_outputs: dict[str, list[dict[str, Any]]] = {}
+        tool_outputs: dict[str, Any] = {}
+        plan_attempted = False  # 本轮是否调用过规划工具（含失败），用于快照语义
         for step in range(1, self._max_iterations + 1):
             self._tracer.record("loop_step", {"step": step})
             self._bus.publish(conversation_key, "thinking", {"step": step})
@@ -93,11 +102,17 @@ class Orchestrator:
                     observation = f"工具 {name} 不存在"
                 else:
                     observation = tool.run(args)
+                    if tool.name == "plan_itinerary":
+                        plan_attempted = True
                     structured = getattr(tool, "structured", None)
                     if structured:
-                        tool_outputs.setdefault(tool.name, []).extend(
-                            asdict(item) if is_dataclass(item) else item for item in structured
-                        )
+                        if isinstance(structured, dict):
+                            tool_outputs[tool.name] = structured
+                        else:
+                            tool_outputs.setdefault(tool.name, []).extend(
+                                asdict(item) if is_dataclass(item) else item
+                                for item in structured
+                            )
                 self._tracer.record(
                     "tool_call",
                     {"step": step, "name": name, "args": args, "observation": observation},
@@ -119,6 +134,15 @@ class Orchestrator:
             payload=tool_outputs or None,
         )
         session.add(assistant_message)
+
+        # 行程快照持久化：本轮生成了行程则落一份快照文档（#5）；
+        # 规划被调用但失败（如无候选圣地）时落空快照占位——“最新快照”
+        # 语义保持一致，旧快照不会在 GET /itinerary 里复活
+        itinerary_payload = tool_outputs.get("plan_itinerary")
+        if itinerary_payload:
+            session.add(Itinerary(conversation_id=conversation.id, payload=itinerary_payload))
+        elif plan_attempted:
+            session.add(Itinerary(conversation_id=conversation.id, payload={}))
         session.commit()
 
         self._bus.publish(conversation_key, "done", {"reply": reply_text})

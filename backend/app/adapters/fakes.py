@@ -5,13 +5,14 @@ development while live adapters don't exist yet.
 """
 
 import json
+import re
 from typing import Any
 
 from app.adapters.ports import Seichi
 
-# 开发期演示启发式（接真实 LLM 后删除）：识别少量作品/地区关键词，直接编排
-# search_seichi 工具调用——让页面在 fake LLM 下也能演示真实 anitabi 检索链路。
-# 仅在没有 scripted 脚本时生效，不影响测试。
+# 开发期演示启发式（接真实 LLM 后删除）：识别少量作品/地区/天数关键词，直接
+# 编排 search_seichi / plan_itinerary 工具调用——让页面在 fake LLM 下也能
+# 演示真实检索与规划链路。仅在没有 scripted 脚本时生效，不影响测试。
 _WORK_KEYWORDS: tuple[tuple[str, str], ...] = (
     ("京吹", "吹响吧！上低音号"),
     ("上低音号", "吹响吧！上低音号"),
@@ -20,6 +21,8 @@ _WORK_KEYWORDS: tuple[tuple[str, str], ...] = (
     ("K-ON", "轻音少女"),
 )
 _AREA_KEYWORDS: tuple[tuple[str, str], ...] = (("宇治", "宇治"),)
+_CN_DIGITS = {"一": 1, "两": 2, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7}
+_DAYS_PATTERN = re.compile(r"([0-9]+|[一二两三四五六七])\s*天")
 
 
 class FakeLLMGateway:
@@ -34,25 +37,44 @@ class FakeLLMGateway:
         return self._heuristic(messages)
 
     def _heuristic(self, messages: list[dict[str, str]]) -> str:
-        """演示启发式：工具观察 → 汇总 final；命中作品关键词 → search_seichi 工具调用。"""
+        """演示启发式：工具观察 → 汇总 final；命中关键词 → 检索/规划工具调用。"""
         last = messages[-1] if messages else {}
         if last.get("role") == "tool":
-            try:
-                count = len(json.loads(last.get("content") or "[]"))
-            except json.JSONDecodeError:
-                count = 0
-            if count:
-                return f"为你找到 {count} 个候选圣地，已在地图上标注。"
-            return "没有找到符合条件的圣地。"
+            return self._summarize_observation(last.get("content") or "")
         text = last.get("content") or ""
         work = next((w for kw, w in _WORK_KEYWORDS if kw in text), None)
-        if work:
-            area = next((a for kw, a in _AREA_KEYWORDS if kw in text), "")
+        if not work:
+            return "fake-llm-response"
+        area = next((a for kw, a in _AREA_KEYWORDS if kw in text), "")
+        days_match = _DAYS_PATTERN.search(text)
+        if days_match:
+            token = days_match.group(1)
+            days = int(token) if token.isdigit() else _CN_DIGITS[token]
             return json.dumps(
-                {"type": "tool_call", "name": "search_seichi", "args": {"work": work, "area": area}},
+                {
+                    "type": "tool_call",
+                    "name": "plan_itinerary",
+                    "args": {"work": work, "area": area, "days": days},
+                },
                 ensure_ascii=False,
             )
-        return "fake-llm-response"
+        return json.dumps(
+            {"type": "tool_call", "name": "search_seichi", "args": {"work": work, "area": area}},
+            ensure_ascii=False,
+        )
+
+    @staticmethod
+    def _summarize_observation(content: str) -> str:
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError:
+            return content or "fake-llm-response"  # 纯文本观察（如“没有找到…”）原样回复
+        if isinstance(data, dict) and "days" in data:  # plan_itinerary 的行程快照
+            total = sum(len(day["seichi"]) for day in data["days"])
+            return f"已为你规划 {data['day_count']} 天行程，共 {total} 个圣地，详见行程与地图。"
+        if isinstance(data, list) and data:  # search_seichi 的候选列表
+            return f"为你找到 {len(data)} 个候选圣地，已在地图上标注。"
+        return "没有找到符合条件的圣地。"
 
 
 class FakeSeichiRepository:

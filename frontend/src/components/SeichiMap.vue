@@ -5,9 +5,10 @@ import 'leaflet/dist/leaflet.css'
 import markerIcon2xUrl from 'leaflet/dist/images/marker-icon-2x.png'
 import markerIconUrl from 'leaflet/dist/images/marker-icon.png'
 import markerShadowUrl from 'leaflet/dist/images/marker-shadow.png'
-import type { SeichiCandidate } from '../types'
+import type { Itinerary, SeichiCandidate } from '../types'
+import { dayColor } from '../types'
 
-const props = defineProps<{ seichi: SeichiCandidate[] }>()
+const props = defineProps<{ seichi: SeichiCandidate[]; itinerary?: Itinerary | null }>()
 
 // vite 下 Leaflet 默认 marker 图标路径会丢，显式绑定打包后的资源
 L.Marker.prototype.options.icon = L.icon({
@@ -61,9 +62,23 @@ function renderMarkers() {
   if (!map || !markers) return
   markers.clearLayers()
   const points: L.LatLngExpression[] = []
-  for (const s of props.seichi) {
-    L.marker([s.lat, s.lng]).bindPopup(popupHtml(s)).addTo(markers)
-    points.push([s.lat, s.lng])
+  if (props.itinerary) {
+    // 行程视图：每天一条路线连线（按天区分颜色）+ 圣地标点
+    for (const day of props.itinerary.days) {
+      const dayPoints = day.seichi.map((s): L.LatLngExpression => [s.lat, s.lng])
+      for (const s of day.seichi) {
+        L.marker([s.lat, s.lng]).bindPopup(popupHtml(s)).addTo(markers)
+      }
+      if (dayPoints.length > 1) {
+        L.polyline(dayPoints, { color: dayColor(day.day), weight: 4, opacity: 0.8 }).addTo(markers)
+      }
+      points.push(...dayPoints)
+    }
+  } else {
+    for (const s of props.seichi) {
+      L.marker([s.lat, s.lng]).bindPopup(popupHtml(s)).addTo(markers)
+      points.push([s.lat, s.lng])
+    }
   }
   if (points.length > 0) {
     map.fitBounds(L.latLngBounds(points), { padding: [30, 30], maxZoom: 15 })
@@ -81,7 +96,7 @@ onMounted(() => {
   renderMarkers()
 })
 
-watch(() => props.seichi, renderMarkers)
+watch(() => [props.seichi, props.itinerary], renderMarkers)
 
 onBeforeUnmount(() => {
   map?.remove()

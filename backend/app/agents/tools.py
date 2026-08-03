@@ -4,10 +4,12 @@ Tool = Agent Loop 可调用的能力单元；ToolRegistry = 按名查找的注�
 """
 
 import json
+from collections.abc import Callable
 from dataclasses import asdict
 from typing import Any, Protocol
 
 from app.adapters.ports import Seichi, SeichiRepository
+from app.agents.planner import plan_itinerary
 
 
 class Tool(Protocol):
@@ -15,7 +17,10 @@ class Tool(Protocol):
     description: str
     #: 结构化输出通道（约定）：工具把最近一次 run 的结构化结果放在这里，
     #: Orchestrator 按工具名收集进消息 payload；无结构化输出的工具保持 None。
-    structured: list[Any] | None
+    structured: Any
+    #: 进度回调（约定）：支持进度上报的工具暴露该属性，Orchestrator 在每次
+    #: 回复前注入（发布 planning 事件到 SSE）；不暴露该属性的工具不上报。
+    progress_sink: Callable[[str], None] | None
 
     def run(self, args: dict[str, Any]) -> str: ...
 
@@ -42,6 +47,53 @@ class SearchSeichiTool:
         if not self.structured:
             return "没有找到符合条件的圣地"
         return json.dumps([asdict(s) for s in self.structured], ensure_ascii=False)
+
+
+class PlanItineraryTool:
+    """Planner 的行程生成工具（#5）：检索候选圣地 → 聚类切分 → 行程快照。
+
+    输入作品+地区+天数；候选集复用 SeichiRepository 端口再检索一次（与
+    Scout 同一数据源，保持单一入口）。结构化行程快照留在 structured
+    （plain dict，JSON 安全），由 Orchestrator 持久化并随响应返回。
+    规划各阶段经 progress_sink 上报（检索中/聚类中/排序中/完成）。
+    """
+
+    name = "plan_itinerary"
+    description = "按作品+地区+天数生成按天组织的行程快照（地理聚类、顺序优化、交通段估算）"
+
+    MAX_DAYS = 7
+
+    def __init__(self, repository: SeichiRepository) -> None:
+        self._repository = repository
+        self.structured: dict[str, Any] | None = None
+        self.progress_sink: Callable[[str], None] | None = None
+
+    def _progress(self, stage: str) -> None:
+        if self.progress_sink is not None:
+            self.progress_sink(stage)
+
+    def run(self, args: dict[str, Any]) -> str:
+        work = str(args.get("work") or "").strip()
+        area = str(args.get("area") or "").strip()
+        try:
+            days = int(args.get("days") or 1)
+        except (TypeError, ValueError):
+            days = 1
+        days = min(max(1, days), self.MAX_DAYS)
+
+        self._progress("检索中")
+        seichi = self._repository.search_seichi(work, area)
+        if not seichi:
+            self.structured = None
+            return "没有找到候选圣地，无法规划行程"
+
+        snapshot = plan_itinerary(seichi, days, progress=self._progress)
+        snapshot.work = work
+        snapshot.area = area
+        self._progress("完成")
+
+        self.structured = asdict(snapshot)
+        return json.dumps(self.structured, ensure_ascii=False)
 
 
 class ToolRegistry:
