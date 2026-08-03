@@ -21,6 +21,8 @@ cd backend && ../.venv/bin/python -m pytest   # 行为测试经 FastAPI TestClie
 .venv/bin/uvicorn app.main:app --reload --app-dir backend
 ```
 
+注意：圣地数据源默认 `seichi_mode=live`，裸跑 dev 会访问外部网络（api.anitabi.cn / api.bgm.tv）；要完全离线可设 `MEGURI_SEICHI_MODE=fake`（测试已默认 fake）。
+
 前端（Node 22+）：
 
 ```bash

@@ -1,10 +1,12 @@
-"""Adapter wiring: selects fake or live implementations per settings.adapter_mode.
+"""Adapter wiring：按 settings 选择 fake 或 live 实现。
 
-This is the single place that consumes MEGURI_ADAPTER_MODE — the rest of the
-app depends on the ports (app.adapters.ports) via these providers, and tests
-override the providers at the HTTP seam (FastAPI dependency_overrides).
+LLM/Transit 由 MEGURI_ADAPTER_MODE 控制；圣地数据源由独立的
+MEGURI_SEICHI_MODE 控制（#4，与 LLM 解耦——真实 LLM 尚未接入，圣地检索
+已可直连 anitabi）。这是唯一消费这些配置的地方；其余代码依赖端口
+（app.adapters.ports），测试在 HTTP 缝 override 这些 provider。
 """
 
+from app.adapters.anitabi import AnitabiSeichiRepository
 from app.adapters.fakes import FakeLLMGateway, FakeSeichiRepository, FakeTransitClient
 from app.adapters.ports import LLMGateway, SeichiRepository, TransitClient
 from app.config import get_settings
@@ -21,9 +23,9 @@ def get_llm_gateway() -> LLMGateway:
 
 
 def get_seichi_repository() -> SeichiRepository:
-    if get_settings().adapter_mode == "fake":
-        return FakeSeichiRepository()
-    _live_not_available("SeichiRepository")
+    if get_settings().seichi_mode == "live":
+        return AnitabiSeichiRepository()
+    return FakeSeichiRepository()
 
 
 def get_transit_client() -> TransitClient:

@@ -28,10 +28,11 @@ def test_health_reports_degraded_when_db_is_down():
     assert body["services"]["db"] == "down"
 
 
-def test_health_reports_adapter_mode():
+def test_health_reports_adapter_modes():
     app.dependency_overrides[get_db_health] = lambda: "up"
     client = TestClient(app)
 
     response = client.get("/api/health")
 
-    assert response.json()["adapters"] == "fake"
+    # conftest 固定 MEGURI_SEICHI_MODE=fake；LLM adapter_mode 默认 fake
+    assert response.json()["adapters"] == {"llm": "fake", "seichi": "fake"}

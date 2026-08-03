@@ -18,5 +18,5 @@ def health(
     return {
         "status": "ok" if db_health == "up" else "degraded",
         "services": {"api": "up", "db": db_health},
-        "adapters": settings.adapter_mode,
+        "adapters": {"llm": settings.adapter_mode, "seichi": settings.seichi_mode},
     }

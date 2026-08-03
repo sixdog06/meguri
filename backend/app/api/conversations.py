@@ -5,16 +5,18 @@ import queue
 import uuid
 from collections.abc import Iterator
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.adapters.ports import LLMGateway
-from app.adapters.providers import get_llm_gateway
+from app.adapters.ports import LLMGateway, SeichiRepository
+from app.adapters.providers import get_llm_gateway, get_seichi_repository
 from app.agents.events import EventBus, event_bus
 from app.agents.orchestrator import ConversationNotFound, Orchestrator
-from app.agents.tools import ToolRegistry
+from app.agents.tools import SearchSeichiTool, ToolRegistry
 from app.agents.tracing import InMemoryTracer, Tracer
 from app.db import get_session
 from app.models import Conversation
@@ -25,9 +27,7 @@ router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 # 测试里 monkeypatch 成小值。
 SSE_IDLE_TIMEOUT = 30.0
 
-# 生产 wiring：工具注册表为空（后续 ticket 注册具体工具）；
 # 默认 tracer 为进程内内存实现，测试/评测可 override 检查。
-_tool_registry = ToolRegistry()
 _default_tracer = InMemoryTracer()
 
 
@@ -39,18 +39,47 @@ class PostMessageRequest(BaseModel):
     text: str
 
 
+class SeichiCandidate(BaseModel):
+    """候选圣地：名称、坐标、对照截图引用、出处（集数+截图来源）。
+
+    与 ports.Seichi 字段一一对应（payload 里存的是它的序列化 dict）。"""
+
+    id: str | None = None
+    name: str
+    work: str | None = None
+    area: str | None = None
+    lat: float
+    lng: float
+    image: str | None = None  # 对照截图（缩略图 URL）
+    ep: int | str | None = None  # 出处集数（可能为 "OST" 等）
+    ep_seconds: int | None = None  # 截图在集内的时间（秒）
+    origin: str | None = None  # 截图来源（CC BY-NC-SA 要求标注）
+    origin_url: str | None = None
+
+
 class PostMessageResponse(BaseModel):
     reply: str
+    seichi: list[SeichiCandidate] = []  # 本轮检索出的结构化候选圣地
 
 
 class MessageOut(BaseModel):
     id: int
     role: str
     content: str
+    payload: dict[str, Any] | None = None
 
 
-def get_tool_registry() -> ToolRegistry:
-    return _tool_registry
+def get_tool_registry(
+    repository: SeichiRepository = Depends(get_seichi_repository),
+) -> ToolRegistry:
+    """生产 wiring：注册 Scout 的 search_seichi 工具（#4）。
+
+    每请求构建，SeichiRepository 经 FastAPI 依赖注入——测试在 HTTP 缝
+    override get_seichi_repository 即换 fake 数据源。
+    """
+    registry = ToolRegistry()
+    registry.register(SearchSeichiTool(repository))
+    return registry
 
 
 def get_tracer() -> Tracer:
@@ -103,7 +132,9 @@ def post_message(
         assistant_message = orchestrator.reply(session, conversation_id, body.text)
     except ConversationNotFound:
         raise HTTPException(status_code=404, detail="会话不存在") from None
-    return PostMessageResponse(reply=assistant_message.content)
+    # 结构化结果按工具名收集（见 Tool 协议 structured 约定通道）
+    seichi = (assistant_message.payload or {}).get("search_seichi", [])
+    return PostMessageResponse(reply=assistant_message.content, seichi=seichi)
 
 
 @router.get("/{conversation_id}/messages", response_model=list[MessageOut])
@@ -113,7 +144,8 @@ def get_messages(
 ) -> list[MessageOut]:
     conversation = _get_conversation_or_404(conversation_id, session)
     return [
-        MessageOut(id=m.id, role=m.role, content=m.content) for m in conversation.messages
+        MessageOut(id=m.id, role=m.role, content=m.content, payload=m.payload)
+        for m in conversation.messages
     ]
 
 

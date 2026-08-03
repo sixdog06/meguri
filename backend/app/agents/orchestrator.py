@@ -14,6 +14,7 @@ LLM 网关的 wire format（约定，见 _parse_llm_output）：
 
 import json
 import uuid
+from dataclasses import asdict, is_dataclass
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -73,6 +74,9 @@ class Orchestrator:
         ]
 
         reply_text = ""
+        # 工具经 structured 约定通道（见 Tool 协议）产出的结构化结果，
+        # 按工具名收集进消息 payload / API 响应
+        tool_outputs: dict[str, list[dict[str, Any]]] = {}
         for step in range(1, self._max_iterations + 1):
             self._tracer.record("loop_step", {"step": step})
             self._bus.publish(conversation_key, "thinking", {"step": step})
@@ -85,7 +89,15 @@ class Orchestrator:
                 name = str(action.get("name", ""))
                 args = action.get("args") or {}
                 tool = self._tools.get(name)
-                observation = tool.run(args) if tool is not None else f"工具 {name} 不存在"
+                if tool is None:
+                    observation = f"工具 {name} 不存在"
+                else:
+                    observation = tool.run(args)
+                    structured = getattr(tool, "structured", None)
+                    if structured:
+                        tool_outputs.setdefault(tool.name, []).extend(
+                            asdict(item) if is_dataclass(item) else item for item in structured
+                        )
                 self._tracer.record(
                     "tool_call",
                     {"step": step, "name": name, "args": args, "observation": observation},
@@ -101,7 +113,10 @@ class Orchestrator:
             reply_text = raw
 
         assistant_message = Message(
-            conversation_id=conversation.id, role="assistant", content=reply_text
+            conversation_id=conversation.id,
+            role="assistant",
+            content=reply_text,
+            payload=tool_outputs or None,
         )
         session.add(assistant_message)
         session.commit()
