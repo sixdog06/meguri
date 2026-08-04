@@ -72,6 +72,17 @@ def test_anitabi故障_抛SeichiSourceUnavailable(mapping):
         repo.search_seichi("京吹", "宇治")
 
 
+def test_curl_cffi故障_同样抛Unavailable(mapping):
+    """线上默认客户端是 curl_cffi（Cloudflare 封 httpx TLS 指纹），其异常也要映射 503。"""
+    from curl_cffi.requests.exceptions import ConnectionError as CurlConnectionError
+
+    repo = AnitabiSeichiRepository(
+        mapping, client=StubAnitabi(error=CurlConnectionError("boom"))
+    )
+    with pytest.raises(SeichiSourceUnavailable):
+        repo.search_seichi("京吹", "宇治")
+
+
 def test_间隙页故障_同样抛Unavailable(mapping):
     repo = AnitabiSeichiRepository(
         mapping, client=StubAnitabi(error=InvalidAnitabiResponse("非 JSON"))

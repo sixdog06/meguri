@@ -7,16 +7,34 @@
 前端可见提示"这部作品没有圣地巡礼数据"）。
 """
 
-import json
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
+from curl_cffi import requests as curl_requests
+from curl_cffi.requests.exceptions import RequestException
 
 from app.adapters.ports import Seichi, SeichiRepository, WorkRef
-from app.http_client import USER_AGENT
 
 ANITABI_BASE_URL = "https://api.anitabi.cn"
+
+
+class _CurlCffiClient:
+    """默认 HTTP 客户端：curl_cffi 伪装 Chrome 的 TLS 指纹。
+
+    api.anitabi.cn 的 Cloudflare 按 TLS 指纹（JA3）封禁 httpx/requests——
+    换 UA、加全套浏览器头都无效（本机实测同 IP 下 curl 200、httpx 403）。
+    接口对齐 httpx.Client 的 .get(url, params) 子集，测试仍可注入
+    httpx.MockTransport 回放客户端。
+    """
+
+    def __init__(self, timeout: float) -> None:
+        self._timeout = timeout
+
+    def get(self, url: str, params: dict[str, str] | None = None) -> Any:
+        return curl_requests.get(
+            url, params=params, impersonate="chrome", timeout=self._timeout
+        )
 
 
 class SeichiSourceUnavailable(Exception):
@@ -46,29 +64,33 @@ def area_matches(area: str, city: str) -> bool:
     return bool(area and city) and (area in city or city in area)
 
 
-def _parse_json(response: httpx.Response) -> Any:
-    """响应 JSON 解析；非 JSON（间隙页/HTML）抛 InvalidAnitabiResponse。"""
+def _parse_json(response: Any) -> Any:
+    """响应 JSON 解析；非 JSON（间隙页/HTML）抛 InvalidAnitabiResponse。
+
+    ValueError 同时覆盖 stdlib 与 curl_cffi 的 JSONDecodeError（后者是
+    ValueError 子类）。
+    """
     try:
         return response.json()
-    except json.JSONDecodeError as exc:
+    except ValueError as exc:
         raise InvalidAnitabiResponse(
             f"anitabi 返回非 JSON（HTTP {response.status_code}，疑似间隙页）"
         ) from exc
 
 
 class AnitabiClient:
-    """anitabi 底层客户端（构造可注入 httpx.Client 便于回放测试）。"""
+    """anitabi 底层客户端（构造可注入 HTTP 客户端便于回放测试）。"""
 
     def __init__(
         self,
         *,
         timeout: float = 10.0,
         max_results: int = 60,
-        client: httpx.Client | None = None,
+        client: Any = None,
     ) -> None:
-        self._client = client or httpx.Client(
-            timeout=timeout, headers={"User-Agent": USER_AGENT}
-        )
+        # client 可注入 httpx.MockTransport 客户端（测试回放）；默认走
+        # _CurlCffiClient（Cloudflare 按 TLS 指纹封 httpx，见该类 docstring）
+        self._client = client or _CurlCffiClient(timeout)
         self._max_results = max_results
 
     def fetch_lite(self, subject_id: int) -> dict[str, Any] | None:
@@ -152,7 +174,7 @@ class AnitabiSeichiRepository:
             return []
         try:
             result = self._client.fetch_seichi(ref.subject_id, work)
-        except httpx.HTTPError as exc:
+        except (httpx.HTTPError, RequestException) as exc:  # httpx（测试回放）与 curl_cffi（线上默认）两类网络错误
             raise SeichiSourceUnavailable(
                 "圣地数据服务暂时不可用，请稍后重试"
             ) from exc
