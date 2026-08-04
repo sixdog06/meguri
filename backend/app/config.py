@@ -8,9 +8,10 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://meguri:meguri@localhost:5432/meguri"
     adapter_mode: Literal["fake", "live"] = "fake"
     # 圣地数据源独立开关（与 LLM 的 adapter_mode 解耦，见 #4）：
-    # 开发默认 live 直连 anitabi，方便演示真实数据；测试经 conftest /
-    # dependency_overrides 固定为 fake。
-    seichi_mode: Literal["fake", "live"] = "live"
+    # live 直连 anitabi；file 用本地离线数据包（data/seichi/，真实 anitabi
+    # 切片——anitabi 网络不可达时的 demo 模式）；fake 供测试。
+    seichi_mode: Literal["fake", "live", "file"] = "live"
+    seichi_data_dir: str = "data/seichi"
     # 交通/开放时间数据源（#6）：live = 本地 OTP 服务 + Overpass。
     # 默认 fake（不依赖重服务）；dev.sh / compose 显式开 live。
     # OTP 不可达时 Navigator 自动降级为估算段（degraded 标记），不报错。

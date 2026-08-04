@@ -7,3 +7,4 @@ dist/
 # OTP graph 数据（大文件，由 otp/download.sh / otp/build.sh 生成）
 otp/src/
 otp/data/
+.env.local

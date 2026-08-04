@@ -20,6 +20,9 @@ services:
     environment:
       MEGURI_DATABASE_URL: postgresql+psycopg://meguri:meguri@db:5432/meguri
       MEGURI_ADAPTER_MODE: fake
+      # 圣地数据源保持 live（部署环境网络正常）；本机开发被 Cloudflare 封时
+      # 用 dev.sh 的 file 模式（离线数据包）
+      MEGURI_SEICHI_MODE: live
       MEGURI_TRANSIT_MODE: live
       MEGURI_OTP_BASE_URL: http://otp:8080/otp
       MEGURI_HOURS_MODE: live

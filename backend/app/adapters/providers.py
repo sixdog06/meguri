@@ -13,6 +13,7 @@ from app.adapters.fakes import (
     FakeSeichiRepository,
     FakeTransitClient,
 )
+from app.adapters.file_seichi import FileSeichiRepository
 from app.adapters.otp import OTPTransitClient
 from app.adapters.overpass import OverpassOpeningHours
 from app.adapters.ports import (
@@ -38,8 +39,12 @@ def get_llm_gateway() -> LLMGateway:
 
 
 def get_seichi_repository() -> SeichiRepository:
-    if get_settings().seichi_mode == "live":
+    settings = get_settings()
+    if settings.seichi_mode == "live":
         return AnitabiSeichiRepository()
+    if settings.seichi_mode == "file":
+        # 离线数据包（真实 anitabi 切片），anitabi 网络不可达时的 demo 模式
+        return FileSeichiRepository(settings.seichi_data_dir)
     return FakeSeichiRepository()
 
 

@@ -1,0 +1,17 @@
+{
+  "comment": "真实 anitabi 数据的离线切片（宇治×京吹，2026-08 抓取自 api.anitabi.cn 的 /bangumi/115908/lite 与 /points/detail）。本机 IP 被 Cloudflare 间歇性封禁时的 demo 数据包。拿到完整 JSON（浏览器打开 https://api.anitabi.cn/bangumi/115908/points/detail?haveImage=true 保存响应）后按本格式替换此文件即可扩到全量 ~577 个地标。非商业使用，截图版权见各 origin（CC BY-NC-SA 4.0）。",
+  "subject_id": 115908,
+  "work": "吹响吧！上低音号",
+  "city": "宇治市",
+  "points": [
+    {"id": "7gs3o1mm", "name": "宇治桥", "lat": 34.8929, "lng": 135.8065, "image": "https://image.anitabi.cn/points/115908/7gs3o1mm.jpg?plan=h160", "ep": 2, "ep_seconds": 809, "origin": "Anitabi@卜卜口", "origin_url": "https://anitabi.cn/", "area": "宇治市"},
+    {"id": "qys7ii", "name": "宇治神社", "lat": 34.8905, "lng": 135.8099, "image": "https://image.anitabi.cn/points/115908/qys7ii.jpg?plan=h160", "ep": 1, "ep_seconds": 1076, "origin": "Google Maps", "origin_url": "https://www.google.com/maps/d/viewer?mid=13mgdlajJV0HxpqKf6ri2NnEHFBc", "area": "宇治市"},
+    {"id": "7g011kn7", "name": "久美子椅", "lat": 34.8896, "lng": 135.8082, "image": "https://image.anitabi.cn/points/115908/7g011kn7.jpg?plan=h160", "ep": 1, "ep_seconds": 881, "origin": "Anitabi@卜卜口", "origin_url": "https://anitabi.cn/", "area": "宇治市"},
+    {"id": "qys7ht", "name": "喜撰橋", "lat": 34.8881, "lng": 135.8099, "image": "https://image.anitabi.cn/points/115908/qys7ht.jpg?plan=h160", "ep": 2, "ep_seconds": 1198, "origin": "Google Maps", "origin_url": "https://www.google.com/maps/d/viewer?mid=13mgdlajJV0HxpqKf6ri2NnEHFBc", "area": "宇治市"},
+    {"id": "7ghhgxql", "name": "府立宇治公園前交差点", "lat": 34.8879, "lng": 135.8089, "image": "https://image.anitabi.cn/points/115908/7ghhgxql.jpg?plan=h160", "ep": 1, "ep_seconds": 1201, "origin": "Anitabi@卜卜口", "origin_url": "https://anitabi.cn/", "area": "宇治市"},
+    {"id": "qys7ia", "name": "大吉山（仏徳山）登山口", "lat": 34.8928, "lng": 135.8107, "image": "https://image.anitabi.cn/user/0/bangumi/115908/points/qys7ia-1697123425329.jpg?plan=h160", "ep": 8, "ep_seconds": 863, "origin": "Google Maps", "origin_url": "https://www.google.com/maps/d/viewer?mid=13mgdlajJV0HxpqKf6ri2NnEHFBc", "area": "宇治市"},
+    {"id": "qys7k4", "name": "大吉山展望台 蓝调", "lat": 34.8926, "lng": 135.8125, "image": "https://image.anitabi.cn/user/0/bangumi/115908/points/qys7k4-1715518655607.jpg?plan=h160", "ep": 8, "ep_seconds": 1131, "origin": "Google Maps", "origin_url": "https://www.google.com/maps/d/viewer?mid=13mgdlajJV0HxpqKf6ri2NnEHFBc", "area": "宇治市"},
+    {"id": "qys7j5", "name": "京坂六地藏", "lat": 34.9321, "lng": 135.7935, "image": "https://image.anitabi.cn/points/115908/qys7j5.jpg?plan=h160", "ep": 1, "ep_seconds": 742, "origin": "Google Maps", "origin_url": "https://www.google.com/maps/d/viewer?mid=13mgdlajJV0HxpqKf6ri2NnEHFBc", "area": "宇治市"},
+    {"id": "qys7fu", "name": "京都音乐厅", "lat": 35.0503, "lng": 135.7664, "image": "https://image.anitabi.cn/points/115908/qys7fu.jpg?plan=h160", "ep": 1, "ep_seconds": 1, "origin": "Google Maps", "origin_url": "https://www.google.com/maps/d/viewer?mid=13mgdlajJV0HxpqKf6ri2NnEHFBc", "area": "京都市"}
+  ]
+}
