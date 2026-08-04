@@ -3,4 +3,5 @@ uvicorn[standard]==0.52.1
 httpx==0.28.1
 sqlalchemy==2.0.51
 psycopg[binary]==3.3.4
+pgvector==0.5.0
 pydantic-settings==2.14.2

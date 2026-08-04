@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import SeichiMap from './components/SeichiMap.vue'
-import type { ChatMessage, Itinerary, ItineraryDay, SeichiCandidate, StopCheck, TransitLeg } from './types'
+import type { ChatMessage, Itinerary, ItineraryDay, Narration, SeichiCandidate, StopCheck, TransitLeg } from './types'
 import { dayColor } from './types'
 
 const STORAGE_KEY = 'meguri_conversation_id'
@@ -47,6 +47,11 @@ function crossDayLeg(day: ItineraryDay): TransitLeg | undefined {
 /** 单站时间校验结果（计划到达时间 + 开放时间）。 */
 function checkOf(day: ItineraryDay, seichiId: string | null): StopCheck | undefined {
   return day.checks.find((c) => c.seichi_id === seichiId)
+}
+
+/** 单站讲解（检索语料 + citation）。 */
+function narrationOf(day: ItineraryDay, seichiId: string | null): Narration | undefined {
+  return day.narrations.find((n) => n.seichi_id === seichiId)
 }
 
 let eventSource: EventSource | null = null
@@ -187,6 +192,12 @@ onBeforeUnmount(() => eventSource?.close())
                 <span v-if="checkOf(day, s.id)?.open === false" class="warn" :title="checkOf(day, s.id)!.note ?? ''">
                   可能闭馆
                 </span>
+                <p v-if="narrationOf(day, s.id)" class="narration">
+                  {{ narrationOf(day, s.id)!.text }}
+                  <span v-if="narrationOf(day, s.id)!.citation" class="citation">
+                    语料：{{ narrationOf(day, s.id)!.citation!.source }}
+                  </span>
+                </p>
               </li>
               <li v-if="legBetween(day, i)" class="leg" :title="legBetween(day, i)!.note ?? ''">
                 ↓ {{ legLabel(legBetween(day, i)!) }}
@@ -360,6 +371,17 @@ onBeforeUnmount(() => eventSource?.close())
   color: #92400e;
   font-size: 0.8rem;
   margin: 0.25rem 0 0;
+}
+.narration {
+  margin: 0.15rem 0 0;
+  color: #4b5563;
+  font-size: 0.85rem;
+  font-weight: normal;
+}
+.citation {
+  color: #9ca3af;
+  font-size: 0.75rem;
+  margin-left: 0.4rem;
 }
 .error {
   color: #dc2626;

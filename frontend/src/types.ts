@@ -45,11 +45,19 @@ export interface StopCheck {
   note: string | null
 }
 
+/** 单站讲解（#8 Storyteller）：检索语料原文片段 + citation。 */
+export interface Narration {
+  seichi_id: string
+  text: string
+  citation: { chunk_id: string; source: string } | null
+}
+
 export interface ItineraryDay {
   day: number
   seichi: SeichiCandidate[]
   legs: TransitLeg[]
   checks: StopCheck[]
+  narrations: Narration[]
 }
 
 /** 预算明细项：amount_yen 为 null = 未计价（不计入合计，不静默当 0）。 */

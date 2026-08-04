@@ -6,9 +6,11 @@ Conversation = 会话，Message = 消息（见 CONTEXT.md 领域语言）。
 import uuid
 from datetime import datetime, timezone
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import JSON, ForeignKey, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.config import get_settings
 from app.db import Base
 
 
@@ -59,3 +61,16 @@ class Itinerary(Base):
     )
     payload: Mapped[dict] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(default=_utcnow)
+
+
+class CorpusChunkRow(Base):
+    """RAG 语料块（#8）：pgvector 向量列 + 余弦检索；与会话数据同库。"""
+
+    __tablename__ = "corpus_chunks"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    source: Mapped[str] = mapped_column(String(64))
+    work: Mapped[str] = mapped_column(String(128))
+    text: Mapped[str] = mapped_column(Text)
+    # 维度随 settings.embedding_dim；改维度需 DROP 本表重建 + 重新灌库
+    embedding: Mapped[list[float]] = mapped_column(Vector(get_settings().embedding_dim))

@@ -92,6 +92,9 @@ class FakeSeichiRepository:
             if s.work == work and (not area or area in (s.area or "") or (s.area or "") in area)
         ]
 
+    def find_work(self, work: str) -> Any:
+        return None  # fake 不做作品解析（测试不经此路径；需要时自行子类化）
+
 
 class FakeTransitClient:
     """默认 fake：estimate=True 表示"没有真实数据"，Navigator 保留原估算段。

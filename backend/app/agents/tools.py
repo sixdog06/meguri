@@ -8,10 +8,17 @@ from collections.abc import Callable
 from dataclasses import asdict
 from typing import Any, Protocol
 
-from app.adapters.ports import OpeningHoursSource, Seichi, SeichiRepository, TransitClient
+from app.adapters.ports import (
+    CorpusStore,
+    OpeningHoursSource,
+    Seichi,
+    SeichiRepository,
+    TransitClient,
+)
 from app.agents.budget import summarize_budget
 from app.agents.navigator import validate_itinerary
 from app.agents.planner import plan_itinerary
+from app.agents.storyteller import narrate_itinerary
 
 
 class Tool(Protocol):
@@ -70,10 +77,12 @@ class PlanItineraryTool:
         repository: SeichiRepository,
         transit: TransitClient | None = None,
         hours: OpeningHoursSource | None = None,
+        corpus: CorpusStore | None = None,
     ) -> None:
         self._repository = repository
         self._transit = transit
         self._hours = hours
+        self._corpus = corpus
         self.structured: dict[str, Any] | None = None
         self.progress_sink: Callable[[str], None] | None = None
 
@@ -109,6 +118,9 @@ class PlanItineraryTool:
         )
         # 预算服务（#7）：确定性汇总 + 超支告警，不经过 LLM
         snapshot.budget = summarize_budget(snapshot, limit_yen=budget_yen)
+        # Storyteller（#8）：检索式讲解 + citation（语料为空则不产出，零幻觉）
+        if self._corpus is not None:
+            narrate_itinerary(snapshot, self._corpus, progress=self._progress)
         self._progress("完成")
 
         self.structured = asdict(snapshot)

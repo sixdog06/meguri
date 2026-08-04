@@ -18,6 +18,15 @@ class Settings(BaseSettings):
     hours_mode: Literal["fake", "live"] = "fake"
     otp_base_url: str = "http://localhost:8081/otp"
     overpass_url: str = "https://overpass-api.de/api/interpreter"
+    # RAG 语料库（#8）：live = pgvector（同库 corpus_chunks 表）+ embedding
+    # （无 openai_api_key 时用确定性哈希向量——检索链路真实、向量 fake）。
+    corpus_mode: Literal["fake", "live"] = "fake"
+    openai_api_key: str | None = None
+    openai_base_url: str = "https://api.openai.com/v1"
+    embedding_model: str = "text-embedding-3-small"
+    # 向量维度：models 的 Vector 列与 EmbeddingProvider 共用此值。
+    # 改维度必须重建语料（DROP TABLE corpus_chunks + 重新灌库）。
+    embedding_dim: int = 64
 
     model_config = {"env_prefix": "MEGURI_"}
 

@@ -32,12 +32,27 @@ class Seichi:
     origin_url: str | None = None
 
 
+@dataclass
+class WorkRef:
+    """作品解析结果（作品名 → bangumi subjectID + 巡礼主城市）。"""
+
+    subject_id: int  # bangumi subjectID（anitabi 的作品 id 同体系）
+    name: str  # 中文名优先
+    city: str
+
+
 class LLMGateway(Protocol):
     def complete(self, messages: list[dict[str, str]]) -> str: ...
 
 
 class SeichiRepository(Protocol):
     def search_seichi(self, work: str, area: str) -> list[Seichi]: ...
+
+    def find_work(self, work: str) -> "WorkRef | None":
+        """作品名 → 作品解析（subjectID/名称/主城市）；找不到返回 None。
+
+        语料灌库等场景经此公开方法取作品标识，不得绕过端口直调数据源。"""
+        ...
 
 
 class TransitClient(Protocol):
@@ -61,3 +76,27 @@ class OpeningHoursSource(Protocol):
     """开放时间数据源（OSM opening_hours）。返回 None = 未知（不误标）。"""
 
     def opening_hours(self, lat: float, lng: float) -> str | None: ...
+
+
+@dataclass
+class CorpusChunk:
+    """RAG 语料块（#8）：作品条目 / 地标描述，经统一检索接口访问。"""
+
+    id: str  # 稳定 id（如 bangumi:115908 / anitabi:115908:7gs3o1mm），upsert 幂等靠它
+    source: str  # 语料来源（bangumi.tv / anitabi）
+    work: str
+    text: str
+
+
+class EmbeddingProvider(Protocol):
+    """文本向量化端口。无真实 key 时用确定性哈希向量（fake）开发/测试。"""
+
+    def embed(self, texts: list[str]) -> list[list[float]]: ...
+
+
+class CorpusStore(Protocol):
+    """统一检索接口（#8）：语料写入与 top-k 相似检索。"""
+
+    def upsert(self, chunks: list[CorpusChunk]) -> None: ...
+
+    def search(self, query: str, k: int) -> list[CorpusChunk]: ...

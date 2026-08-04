@@ -12,8 +12,15 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.adapters.ports import LLMGateway, OpeningHoursSource, SeichiRepository, TransitClient
+from app.adapters.ports import (
+    CorpusStore,
+    LLMGateway,
+    OpeningHoursSource,
+    SeichiRepository,
+    TransitClient,
+)
 from app.adapters.providers import (
+    get_corpus_store,
     get_llm_gateway,
     get_opening_hours_source,
     get_seichi_repository,
@@ -89,11 +96,27 @@ class StopCheckOut(BaseModel):
     note: str | None = None
 
 
+class CitationOut(BaseModel):
+    """讲解引用的语料出处。"""
+
+    chunk_id: str
+    source: str
+
+
+class NarrationOut(BaseModel):
+    """单站讲解（#8）：检索语料原文片段 + citation。"""
+
+    seichi_id: str
+    text: str
+    citation: CitationOut | None = None
+
+
 class ItineraryDayOut(BaseModel):
     day: int
     seichi: list[SeichiCandidate]
     legs: list[TransitLegOut]
     checks: list[StopCheckOut] = []
+    narrations: list[NarrationOut] = []
 
 
 class BudgetItemOut(BaseModel):
@@ -144,16 +167,17 @@ def get_tool_registry(
     repository: SeichiRepository = Depends(get_seichi_repository),
     transit: TransitClient = Depends(get_transit_client),
     hours: OpeningHoursSource = Depends(get_opening_hours_source),
+    corpus: CorpusStore = Depends(get_corpus_store),
 ) -> ToolRegistry:
     """生产 wiring：注册 Scout 的 search_seichi 工具（#4）与 Planner 的
-    plan_itinerary 工具（#5，#6 起经 Navigator 做交通/时间校验）。
+    plan_itinerary 工具（#5；#6 Navigator 交通校验、#7 预算、#8 Storyteller）。
 
     每请求构建，外部依赖经 FastAPI 依赖注入——测试在 HTTP 缝
     override 对应 provider 即换 fake。
     """
     registry = ToolRegistry()
     registry.register(SearchSeichiTool(repository))
-    registry.register(PlanItineraryTool(repository, transit, hours))
+    registry.register(PlanItineraryTool(repository, transit, hours, corpus))
     return registry
 
 

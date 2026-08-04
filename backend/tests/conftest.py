@@ -6,6 +6,7 @@ os.environ["MEGURI_DATABASE_URL"] = "postgresql+psycopg://meguri:meguri@localhos
 os.environ["MEGURI_SEICHI_MODE"] = "fake"
 os.environ["MEGURI_TRANSIT_MODE"] = "fake"
 os.environ["MEGURI_HOURS_MODE"] = "fake"
+os.environ["MEGURI_CORPUS_MODE"] = "fake"
 
 import pytest
 
@@ -25,9 +26,14 @@ def clear_dependency_overrides():
 @pytest.fixture(scope="session", autouse=True)
 def reset_db_schema():
     """每个测试会话重建一次 schema，保证隔离。Postgres 用真实的。"""
+    from sqlalchemy import text
+
     from app import db, models  # noqa: F401  (导入 models 以注册表)
 
     engine = db._get_engine()
     db.Base.metadata.drop_all(engine)
+    with engine.connect() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))  # RAG 语料（#8）
+        conn.commit()
     db.Base.metadata.create_all(engine)
     yield

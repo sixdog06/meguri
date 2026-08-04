@@ -19,6 +19,7 @@ from app.geo import haversine_km
 
 if TYPE_CHECKING:
     from app.agents.budget import BudgetReport  # 避免循环导入（budget 依赖本模块）
+    from app.agents.storyteller import Narration  # 类型定义在 storyteller，本模块只引用
 
 WALK_MAX_KM = 2.0  # 超过此距离按车程估算
 WALK_KMH = 5.0
@@ -65,6 +66,7 @@ class ItineraryDay:
     seichi: list[Seichi]
     legs: list[TransitLeg] = field(default_factory=list)
     checks: list[StopCheck] = field(default_factory=list)
+    narrations: list["Narration"] = field(default_factory=list)
 
 
 @dataclass

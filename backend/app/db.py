@@ -26,10 +26,14 @@ def get_session() -> Iterator[Session]:
 
 
 def init_db() -> None:
-    """启动时建表（尚无 Alembic，见后续 ticket）。"""
+    """启动时建表（尚无 Alembic，见后续 ticket）；RAG 语料需要 pgvector 扩展。"""
     from app import models  # noqa: F401  (导入以注册表)
 
-    Base.metadata.create_all(_get_engine())
+    engine = _get_engine()
+    with engine.connect() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        conn.commit()
+    Base.metadata.create_all(engine)
 
 
 def check_db_health() -> str:

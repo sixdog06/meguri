@@ -18,7 +18,7 @@ from typing import Any
 
 import httpx
 
-from app.adapters.ports import Seichi
+from app.adapters.ports import Seichi, WorkRef
 
 BANGUMI_SEARCH_URL = "https://api.bgm.tv/v0/search/subjects"
 ANITABI_BASE_URL = "https://api.anitabi.cn"
@@ -41,6 +41,19 @@ class AnitabiSeichiRepository:
         )
         self._max_works = max_works
         self._max_results = max_results
+
+    def find_work(self, work: str) -> WorkRef | None:
+        """作品名 → subjectID/名称/主城市（首个匹配且有巡礼数据的作品）。"""
+        for subject_id in self._resolve_subject_ids(work):
+            lite = self._fetch_lite(subject_id)
+            if lite is None:
+                continue
+            return WorkRef(
+                subject_id=subject_id,
+                name=str(lite.get("cn") or lite.get("title") or work),
+                city=str(lite.get("city") or ""),
+            )
+        return None
 
     def search_seichi(self, work: str, area: str) -> list[Seichi]:
         results: list[Seichi] = []

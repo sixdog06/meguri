@@ -11,6 +11,8 @@ export MEGURI_DATABASE_URL=postgresql+psycopg://meguri:meguri@localhost:5433/meg
 # docker compose up -d otp 起服务；OTP 未起时 Navigator 自动降级为估算段）
 export MEGURI_TRANSIT_MODE=live
 export MEGURI_HOURS_MODE=live
+# RAG 语料走同库 pgvector（灌库：.venv/bin/python -m app.rag.ingest --work 吹响吧！上低音号）
+export MEGURI_CORPUS_MODE=live
 
 # Ctrl-C 时把两个后台进程一起收掉
 trap 'kill 0' EXIT

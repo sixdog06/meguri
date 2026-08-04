@@ -15,8 +15,16 @@ from app.adapters.fakes import (
 )
 from app.adapters.otp import OTPTransitClient
 from app.adapters.overpass import OverpassOpeningHours
-from app.adapters.ports import LLMGateway, OpeningHoursSource, SeichiRepository, TransitClient
+from app.adapters.ports import (
+    CorpusStore,
+    LLMGateway,
+    OpeningHoursSource,
+    SeichiRepository,
+    TransitClient,
+)
 from app.config import get_settings
+from app.rag.embedding import HashEmbeddingProvider, OpenAIEmbeddingProvider
+from app.rag.store import InMemoryCorpusStore, PgVectorCorpusStore
 
 
 def _live_not_available(name: str) -> None:
@@ -47,3 +55,21 @@ def get_opening_hours_source() -> OpeningHoursSource:
     if settings.hours_mode == "live":
         return OverpassOpeningHours(settings.overpass_url)
     return FakeOpeningHours()
+
+
+def get_corpus_store() -> CorpusStore:
+    """RAG 统一检索接口（#8）：live = pgvector + embedding；fake = 内存。"""
+    settings = get_settings()
+    if settings.corpus_mode == "live":
+        if settings.openai_api_key:
+            embedder = OpenAIEmbeddingProvider(
+                settings.openai_base_url, settings.openai_api_key, settings.embedding_model
+            )
+        else:
+            # 无 key：确定性哈希向量——检索基础设施（pgvector/余弦/top-k）真实，
+            # 向量是 fake；接真实 key 后自动切换（当前为 stub，见 ADR-0002）
+            embedder = HashEmbeddingProvider(dim=settings.embedding_dim)
+        from app.db import _get_engine
+
+        return PgVectorCorpusStore(_get_engine(), embedder)
+    return InMemoryCorpusStore()
