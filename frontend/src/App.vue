@@ -157,6 +157,23 @@ onBeforeUnmount(() => eventSource?.close())
       <p v-if="progress" class="progress">{{ progress }}</p>
       <section v-if="itinerary" class="itinerary">
         <h2>{{ itinerary.work ?? '行程' }} · {{ itinerary.day_count }} 天</h2>
+        <div v-if="itinerary.budget" class="budget">
+          <p class="budget-total" :class="{ over: itinerary.budget.over_budget }">
+            已计价合计 ¥{{ itinerary.budget.total_yen.toLocaleString() }}<template v-if="itinerary.budget.limit_yen !== null"> / 上限 ¥{{ itinerary.budget.limit_yen.toLocaleString() }}</template>
+          </p>
+          <p v-if="itinerary.budget.over_budget" class="over-alert">⚠ {{ itinerary.budget.alert }}</p>
+          <div class="budget-detail">
+            <p v-for="(item, i) in itinerary.budget.transit" :key="'t' + i" class="budget-item">
+              交通 · {{ item.label }}：{{ item.amount_yen === null ? '未计价' : `¥${item.amount_yen.toLocaleString()}` }}
+            </p>
+            <p v-for="(item, i) in itinerary.budget.admission" :key="'a' + i" class="budget-item">
+              门票 · {{ item.label }}：{{ item.amount_yen === null ? '未计价' : `¥${item.amount_yen.toLocaleString()}` }}
+            </p>
+          </div>
+          <p v-if="itinerary.budget.unpriced_count" class="unpriced">
+            {{ itinerary.budget.unpriced_count }} 项未计价（票价/门票数据缺失，未计入合计与超支判断）
+          </p>
+        </div>
         <div v-for="day in itinerary.days" :key="day.day" class="day">
           <h3>
             <span class="day-dot" :style="{ background: dayColor(day.day) }" />
@@ -312,6 +329,37 @@ onBeforeUnmount(() => eventSource?.close())
   padding: 0 0.3rem;
   font-size: 0.75rem;
   margin-left: 0.4rem;
+}
+.budget {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+}
+.budget-total {
+  font-weight: bold;
+  margin: 0.25rem 0;
+}
+.budget-total.over {
+  color: #b91c1c;
+}
+.over-alert {
+  color: #b91c1c;
+  font-weight: bold;
+  margin: 0.25rem 0;
+}
+.budget-detail {
+  max-height: 8rem;
+  overflow-y: auto;
+}
+.budget-item {
+  margin: 0.1rem 0;
+  color: #374151;
+}
+.unpriced {
+  color: #92400e;
+  font-size: 0.8rem;
+  margin: 0.25rem 0 0;
 }
 .error {
   color: #dc2626;

@@ -12,9 +12,13 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING
 
 from app.adapters.ports import Seichi
 from app.geo import haversine_km
+
+if TYPE_CHECKING:
+    from app.agents.budget import BudgetReport  # 避免循环导入（budget 依赖本模块）
 
 WALK_MAX_KM = 2.0  # 超过此距离按车程估算
 WALK_KMH = 5.0
@@ -71,7 +75,7 @@ class ItinerarySnapshot:
     days: list[ItineraryDay]
     work: str | None = None
     area: str | None = None
-    budget: dict | None = None  # 预算只留结构，由预算服务（后续票）填值
+    budget: "BudgetReport | None" = None  # 预算报告（#7 预算服务汇总；asdict 推迟到持久化边界）
 
 
 def _distance(a: Seichi, b: Seichi) -> float:

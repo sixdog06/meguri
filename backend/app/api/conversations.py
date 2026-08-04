@@ -96,14 +96,31 @@ class ItineraryDayOut(BaseModel):
     checks: list[StopCheckOut] = []
 
 
+class BudgetItemOut(BaseModel):
+    label: str
+    amount_yen: int | None = None  # None = 未计价（不计入合计，不静默当 0）
+
+
+class BudgetOut(BaseModel):
+    """预算报告（#7 确定性预算服务）：总计、交通/门票分项、超支告警。"""
+
+    limit_yen: int | None = None
+    total_yen: int  # 已计价合计
+    over_budget: bool
+    alert: str | None = None
+    transit: list[BudgetItemOut] = []
+    admission: list[BudgetItemOut] = []
+    unpriced_count: int = 0  # 未计价项数（票价缺失的交通段 + 无数据源的门票）
+
+
 class ItineraryOut(BaseModel):
-    """行程快照：按天组织的圣地序列 + 交通段；预算只留结构（后续票填值）。"""
+    """行程快照：按天组织的圣地序列 + 交通段 + 预算报告。"""
 
     work: str | None = None
     area: str | None = None
     day_count: int
     days: list[ItineraryDayOut]
-    budget: dict | None = None
+    budget: BudgetOut | None = None
 
 
 class ItineraryResponse(BaseModel):

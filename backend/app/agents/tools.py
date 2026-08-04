@@ -9,6 +9,7 @@ from dataclasses import asdict
 from typing import Any, Protocol
 
 from app.adapters.ports import OpeningHoursSource, Seichi, SeichiRepository, TransitClient
+from app.agents.budget import summarize_budget
 from app.agents.navigator import validate_itinerary
 from app.agents.planner import plan_itinerary
 
@@ -88,6 +89,10 @@ class PlanItineraryTool:
         except (TypeError, ValueError):
             days = 1
         days = min(max(1, days), self.MAX_DAYS)
+        try:
+            budget_yen = int(args["budget_yen"]) if args.get("budget_yen") else None
+        except (TypeError, ValueError):
+            budget_yen = None
 
         self._progress("检索中")
         seichi = self._repository.search_seichi(work, area)
@@ -102,6 +107,8 @@ class PlanItineraryTool:
         validate_itinerary(
             snapshot, self._transit, self._hours, progress=self._progress
         )
+        # 预算服务（#7）：确定性汇总 + 超支告警，不经过 LLM
+        snapshot.budget = summarize_budget(snapshot, limit_yen=budget_yen)
         self._progress("完成")
 
         self.structured = asdict(snapshot)
