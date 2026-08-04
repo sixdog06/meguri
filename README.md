@@ -31,9 +31,11 @@ cd backend && ../.venv/bin/python -m pytest   # 行为测试经 FastAPI TestClie
 .venv/bin/uvicorn app.main:app --reload --app-dir backend
 ```
 
-注意：圣地数据源默认 `seichi_mode=live`，裸跑 dev 会访问外部网络（api.anitabi.cn / api.bgm.tv）；要完全离线可设 `MEGURI_SEICHI_MODE=fake`（测试已默认 fake）。
+注意：圣地数据源默认 `seichi_mode=live`，裸跑 dev 会访问外部网络（api.anitabi.cn）；要完全离线可设 `MEGURI_SEICHI_MODE=fake`（测试已默认 fake）。
 
-**离线数据包模式（`seichi_mode=file`，dev.sh 当前默认）**：圣地数据从本地数据包 `data/seichi/` 读——`index.json` 是作品名关键词 → subjectID 映射，`<subjectID>.json` 是该作品的圣地列表。内置的 `115908.json` 是**真实 anitabi 数据的离线切片**（宇治×京吹 9 个地标，2026-08 抓取），用于本机 IP 被 Cloudflare 封在 api.anitabi.cn 时的 demo。扩到全量：浏览器打开 `https://api.anitabi.cn/bangumi/115908/points/detail?haveImage=true` 保存响应，按同格式替换该文件即可（~577 个地标）；加新作品 = 放数据文件 + index.json 加关键词。
+**数据层架构（用户拍板，最终版）**：
+- **本地 JSON 的唯一职责是 ID↔名字映射**：`python -m app.ingest_bangumi` 用 Bangumi v0 API（自定义 UA、限速 ≤2 req/s、按年 checkpoint 断点续传）拉 1990 年后全部动画 → `data/works/anime-1990plus.json`（`{id, name, name_cn, air_date}`，summary 保留供 RAG 语料）。运行流程：用户 prompt →（LLM）解析出作品名 → 查本地映射拿 subjectID → **实时**调 anitabi `/bangumi/{id}/lite` 拿圣地数据。
+- **两种显式结果**：anitabi 调用失败（权限/网络/403/超时/非 JSON 间隙页）→ `SeichiSourceUnavailable` → **503 + "圣地数据服务暂时不可用"**（不降级本地数据包）；anitabi 成功但无数据 → 结构化 `notice` + 回复如实转述 **"这部作品没有圣地巡礼数据"**（非错误，也区别于"还在加载"）。前端两种情形分别有 toast 提示。
 
 交通与开放时间（#6）：`dev.sh` 默认 `MEGURI_TRANSIT_MODE=live` / `MEGURI_HOURS_MODE=live`，走本地 OTP 与 Overpass；OTP 未启动时 Navigator 自动降级为估算段（leg 带"降级"标记），不会报错。注意 `hours_mode=live` 会访问外部网络（overpass-api.de，查 OSM opening_hours）；离线可设 `MEGURI_HOURS_MODE=fake`（测试已默认 fake）。
 

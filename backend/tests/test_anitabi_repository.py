@@ -1,23 +1,13 @@
-"""AnitabiSeichiRepository 的解析逻辑测试。
+"""AnitabiClient 的解析/故障语义测试。
 
-用 2026-08 从真实 api.anitabi.cn / api.bgm.tv 抓取（并裁剪）的响应体，
-经 httpx.MockTransport 回放，验证 live adapter 对真实数据结构的映射。
-（对外的行为测试在 test_seichi_search.py，fake 打在 SeichiRepository 端口上。）
+用 2026-08 从真实 api.anitabi.cn 抓取（并裁剪）的响应体，经 httpx.MockTransport
+回放验证；线上"作品名→ID"不在此层（本地 ID 库承担，见 file_seichi 测试）。
 """
 
-import json
-
 import httpx
+import pytest
 
-from app.adapters.anitabi import AnitabiSeichiRepository
-
-# --- 真实响应（裁剪）：POST api.bgm.tv/v0/search/subjects，keyword=吹响吧！上低音号
-BGM_SEARCH_RESPONSE = {
-    "data": [
-        {"id": 115908, "name": "響け！ユーフォニアム", "name_cn": "吹响吧！上低音号"},
-        {"id": 152091, "name": "響け！ユーフォニアム2", "name_cn": "吹响吧！上低音号 第二季"},
-    ]
-}
+from app.adapters.anitabi import AnitabiClient
 
 # --- 真实响应（裁剪）：GET api.anitabi.cn/bangumi/115908/lite
 ANITABI_LITE_RESPONSE = {
@@ -54,29 +44,26 @@ ANITABI_POINTS_RESPONSE = [
 ]
 
 
-def make_repo() -> AnitabiSeichiRepository:
+def make_client() -> AnitabiClient:
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.host == "api.bgm.tv":
-            return httpx.Response(200, json=BGM_SEARCH_RESPONSE)
         if request.url.path.endswith("/lite"):
-            if "115908" in request.url.path:
-                return httpx.Response(200, json=ANITABI_LITE_RESPONSE)
-            return httpx.Response(404)  # 第二季在 anitabi 无数据（假设）
+            return httpx.Response(200, json=ANITABI_LITE_RESPONSE)
         if request.url.path.endswith("/points/detail"):
             return httpx.Response(200, json=ANITABI_POINTS_RESPONSE)
         return httpx.Response(500)
 
-    client = httpx.Client(transport=httpx.MockTransport(handler))
-    return AnitabiSeichiRepository(client=client)
+    return AnitabiClient(client=httpx.Client(transport=httpx.MockTransport(handler)))
 
 
 def test_真实响应结构映射为候选圣地():
-    repo = make_repo()
+    result = make_client().fetch_seichi(115908)
 
-    results = repo.search_seichi("吹响吧！上低音号", "宇治")
-
-    assert len(results) == 2
-    first = results[0]
+    assert result is not None
+    assert result.work_name == "吹响吧！上低音号"
+    assert result.city == "宇治市"
+    seichi = result.seichi
+    assert len(seichi) == 2
+    first = seichi[0]
     assert first.name == "宇治桥"  # 优先中文译名
     assert (first.lat, first.lng) == (34.8929, 135.8065)
     assert first.image.startswith("https://image.anitabi.cn/points/115908/")
@@ -86,36 +73,47 @@ def test_真实响应结构映射为候选圣地():
     assert first.work == "吹响吧！上低音号"
     assert first.area == "宇治市"
     # 无中文译名的地标回退原名
-    assert results[1].name == "大吉山展望台 蓝调"
+    assert seichi[1].name == "大吉山展望台 蓝调"
 
 
-def test_地区不匹配时返回空():
-    repo = make_repo()
+def test_lite_404返回None():
+    client = AnitabiClient(
+        client=httpx.Client(
+            transport=httpx.MockTransport(lambda r: httpx.Response(404))
+        )
+    )
 
-    assert repo.search_seichi("吹响吧！上低音号", "东京") == []
+    assert client.fetch_lite(999999) is None
+    assert client.fetch_seichi(999999) is None
 
 
-def test_网络故障降级为空结果():
-    def failing_handler(request: httpx.Request) -> httpx.Response:
+def test_网络故障原样上抛_由仓库层映射为SeichiSourceUnavailable():
+    def failing(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("boom")
 
-    client = httpx.Client(transport=httpx.MockTransport(failing_handler))
-    repo = AnitabiSeichiRepository(client=client)
+    client = AnitabiClient(
+        client=httpx.Client(transport=httpx.MockTransport(failing))
+    )
 
-    assert repo.search_seichi("吹响吧！上低音号", "宇治") == []
+    with pytest.raises(httpx.ConnectError):
+        client.fetch_lite(115908)
+    with pytest.raises(httpx.ConnectError):
+        client.fetch_points(115908)
 
 
-def test_检索参数直通_bgm搜索用作品名():
-    seen: list[dict] = []
+def test_非JSON间隙页_抛InvalidAnitabiResponse():
+    """Cloudflare 200+HTML 间隙页：解析层错误按故障上抛（编程错误不掩）。"""
+    from app.adapters.anitabi import InvalidAnitabiResponse
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.host == "api.bgm.tv":
-            seen.append(json.loads(request.content))
-            return httpx.Response(200, json={"data": []})
-        return httpx.Response(500)
+    client = AnitabiClient(
+        client=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda r: httpx.Response(200, text="<html>Attention Required!</html>")
+            )
+        )
+    )
 
-    client = httpx.Client(transport=httpx.MockTransport(handler))
-    repo = AnitabiSeichiRepository(client=client)
-    repo.search_seichi("吹响吧！上低音号", "宇治")
-
-    assert seen == [{"keyword": "吹响吧！上低音号", "filter": {"type": [2]}}]
+    with pytest.raises(InvalidAnitabiResponse):
+        client.fetch_lite(115908)
+    with pytest.raises(InvalidAnitabiResponse):
+        client.fetch_points(115908)

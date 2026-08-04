@@ -183,6 +183,10 @@ class Orchestrator:
                                 asdict(item) if is_dataclass(item) else item
                                 for item in structured
                             )
+                    # 用户可见提示通道（约定，见 Tool 协议）：非错误的显式业务结果
+                    notice = getattr(tool, "notice", None)
+                    if notice:
+                        tool_outputs["notice"] = notice
                 self._tracer.record(
                     "tool_call",
                     {"step": step, "name": name, "args": args, "observation": observation},

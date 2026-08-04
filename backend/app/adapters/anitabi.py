@@ -1,138 +1,163 @@
-"""SeichiRepository 的 live 实现：anitabi.cn 公开数据 API（ADR-0001）。
+"""anitabi.cn 公开数据 API 客户端 + 线上圣地仓库（ADR-0001，仅允许非商业使用）。
 
-仅允许非商业使用（CC BY-NC-SA 4.0），见 ADR-0001。
-
-用到的端点（https://navi.anitabi.cn/docs/api/）：
-- POST https://api.bgm.tv/v0/search/subjects
-  作品名 → bangumi subjectID（anitabi 的作品 id 即 bangumi subjectID；
-  anitabi 公开 API 没有按名搜索作品的端点，故经 bangumi.tv 解析）
-- GET  https://api.anitabi.cn/bangumi/{subjectID}/lite
-  作品巡礼信息（城市 city、概览坐标等）
-- GET  https://api.anitabi.cn/bangumi/{subjectID}/points/detail?haveImage=true
-  全部巡礼地标（名称、geo 坐标、对照截图 image、出处 ep/s、截图来源 origin/originURL）
-
-网络故障一律降级为空结果，不拖垮对话主流程。
+最终架构（用户拍板）：本地 JSON 只做 ID↔名字映射（Bangumi 离线灌库产物）；
+运行时用映射拿 subjectID 后**实时**调 anitabi 拿圣地数据。anitabi 调用失败
+（网络/超时/403/非 JSON 间隙页）抛 SeichiSourceUnavailable（API 映射 503，
+**不降级本地数据包**）；anitabi 成功但无数据抛 NoSeichiData（显式区别于故障，
+前端可见提示"这部作品没有圣地巡礼数据"）。
 """
 
+import json
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
-from app.adapters.ports import Seichi, WorkRef
+from app.adapters.ports import Seichi, SeichiRepository, WorkRef
+from app.http_client import USER_AGENT
 
-BANGUMI_SEARCH_URL = "https://api.bgm.tv/v0/search/subjects"
 ANITABI_BASE_URL = "https://api.anitabi.cn"
 
-# bangumi.tv 要求带可识别的 User-Agent
-USER_AGENT = "sixdog06/meguri (https://github.com/sixdog06/meguri)"
+
+class SeichiSourceUnavailable(Exception):
+    """anitabi 不可达（网络/超时/403/间隙页）——显式故障，API 映射 503。"""
 
 
-class AnitabiSeichiRepository:
-    """SeichiRepository 的 anitabi 在线实现（构造可注入 httpx.Client 便于回放测试）。"""
+class NoSeichiData(Exception):
+    """anitabi 正常响应但该作品没有巡礼数据——非故障，显式告知用户。"""
+
+
+class InvalidAnitabiResponse(httpx.HTTPError):
+    """anitabi 返回非合法 JSON（疑似 Cloudflare 200+HTML 间隙页）——按故障处理。"""
+
+
+@dataclass
+class AnitabiWorkSeichi:
+    """单作品巡礼数据：作品名、主城市、圣地列表。"""
+
+    work_name: str
+    city: str
+    seichi: list[Seichi]
+
+
+def area_matches(area: str, city: str) -> bool:
+    """城市名宽松匹配：用户说“宇治”应命中 anitabi 的“宇治市”。"""
+    area, city = area.strip(), city.strip()
+    return bool(area and city) and (area in city or city in area)
+
+
+def _parse_json(response: httpx.Response) -> Any:
+    """响应 JSON 解析；非 JSON（间隙页/HTML）抛 InvalidAnitabiResponse。"""
+    try:
+        return response.json()
+    except json.JSONDecodeError as exc:
+        raise InvalidAnitabiResponse(
+            f"anitabi 返回非 JSON（HTTP {response.status_code}，疑似间隙页）"
+        ) from exc
+
+
+class AnitabiClient:
+    """anitabi 底层客户端（构造可注入 httpx.Client 便于回放测试）。"""
 
     def __init__(
         self,
         *,
         timeout: float = 10.0,
-        max_works: int = 3,
         max_results: int = 60,
         client: httpx.Client | None = None,
     ) -> None:
         self._client = client or httpx.Client(
             timeout=timeout, headers={"User-Agent": USER_AGENT}
         )
-        self._max_works = max_works
         self._max_results = max_results
 
-    def find_work(self, work: str) -> WorkRef | None:
-        """作品名 → subjectID/名称/主城市（首个匹配且有巡礼数据的作品）。"""
-        for subject_id in self._resolve_subject_ids(work):
-            lite = self._fetch_lite(subject_id)
-            if lite is None:
+    def fetch_lite(self, subject_id: int) -> dict[str, Any] | None:
+        """作品巡礼轻量信息；404 返回 None（无数据），网络/解析异常上抛。"""
+        response = self._client.get(f"{ANITABI_BASE_URL}/bangumi/{subject_id}/lite")
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        return _parse_json(response)
+
+    def fetch_points(self, subject_id: int) -> list[dict[str, Any]]:
+        """全部巡礼地标（含截图）；网络/解析异常上抛。"""
+        response = self._client.get(
+            f"{ANITABI_BASE_URL}/bangumi/{subject_id}/points/detail",
+            params={"haveImage": "true"},
+        )
+        response.raise_for_status()
+        data = _parse_json(response)
+        if not isinstance(data, list):  # 错误 JSON 对象（如 {"error": ...}）按故障处理，不误判为"无数据"
+            raise InvalidAnitabiResponse("anitabi points 返回非数组 JSON（疑似错误响应）")
+        return data
+
+    def fetch_seichi(
+        self, subject_id: int, work_fallback: str = ""
+    ) -> AnitabiWorkSeichi | None:
+        """lite + points → 单作品巡礼数据；无巡礼数据返回 None。"""
+        lite = self.fetch_lite(subject_id)
+        if lite is None:
+            return None
+        city = str(lite.get("city") or "")
+        work_name = str(lite.get("cn") or lite.get("title") or work_fallback)
+        results: list[Seichi] = []
+        for point in self.fetch_points(subject_id):
+            geo = point.get("geo")
+            if not geo:
                 continue
-            return WorkRef(
-                subject_id=subject_id,
-                name=str(lite.get("cn") or lite.get("title") or work),
-                city=str(lite.get("city") or ""),
+            results.append(
+                Seichi(
+                    id=point.get("id"),
+                    name=point.get("cn") or point.get("name") or "",
+                    work=work_name,
+                    area=city,
+                    lat=geo[0],
+                    lng=geo[1],
+                    image=point.get("image"),
+                    ep=point.get("ep"),
+                    ep_seconds=point.get("s"),
+                    origin=point.get("origin"),
+                    origin_url=point.get("originURL"),
+                )
             )
-        return None
+            if len(results) >= self._max_results:
+                break
+        return AnitabiWorkSeichi(work_name=work_name, city=city, seichi=results)
+
+
+class AnitabiSeichiRepository:
+    """SeichiRepository 的线上实现：本地映射解析 → anitabi 实时拉取。
+
+    组合本地映射存储（find_work 主路径，FileSeichiRepository）与
+    AnitabiClient；两种显式结果见模块头（SeichiSourceUnavailable /
+    NoSeichiData）。
+    """
+
+    def __init__(self, mapping: SeichiRepository, client: AnitabiClient | None = None) -> None:
+        self._mapping = mapping
+        self._client = client or AnitabiClient()
+
+    def find_work(self, work: str) -> WorkRef | None:
+        """作品名 → WorkRef：只查本地 ID↔名字映射（运行时不调 Bangumi）。"""
+        return self._mapping.find_work(work)
 
     def search_seichi(self, work: str, area: str) -> list[Seichi]:
-        """作品名解析 → 逐作品拉巡礼地标，按地区过滤后归一为 Seichi 列表。
+        """本地映射解析 → anitabi 实时拉取，按地区过滤。
 
-        单作品失败（无巡礼数据/网络异常）跳过不影响其它作品；上限 max_results。
+        未收录的作品返回 []（普通空结果）；anitabi 故障抛
+        SeichiSourceUnavailable；anitabi 无该作品数据抛 NoSeichiData。
         """
-        results: list[Seichi] = []
-        for subject_id in self._resolve_subject_ids(work):
-            lite = self._fetch_lite(subject_id)
-            if lite is None:
-                continue  # 该作品在 anitabi 没有巡礼数据
-            city = str(lite.get("city") or "")
-            if area and not self._area_matches(area, city):
-                continue
-            work_name = str(lite.get("cn") or lite.get("title") or work)
-            for point in self._fetch_points(subject_id):
-                geo = point.get("geo")
-                if not geo:
-                    continue
-                results.append(
-                    Seichi(
-                        id=point.get("id"),
-                        name=point.get("cn") or point.get("name") or "",
-                        work=work_name,
-                        area=city,
-                        lat=geo[0],
-                        lng=geo[1],
-                        image=point.get("image"),
-                        ep=point.get("ep"),
-                        ep_seconds=point.get("s"),
-                        origin=point.get("origin"),
-                        origin_url=point.get("originURL"),
-                    )
-                )
-                if len(results) >= self._max_results:
-                    return results
-        return results
-
-    @staticmethod
-    def _area_matches(area: str, city: str) -> bool:
-        """城市名宽松匹配：用户说“宇治”应命中 anitabi 的“宇治市”。"""
-        area, city = area.strip(), city.strip()
-        return bool(area and city) and (area in city or city in area)
-
-    def _resolve_subject_ids(self, work: str) -> list[int]:
-        """bgm.tv 搜索动画条目，取前 max_works 个 subjectID；故障降级为空。"""
-        try:
-            response = self._client.post(
-                BANGUMI_SEARCH_URL,
-                json={"keyword": work, "filter": {"type": [2]}},  # type 2 = 动画
-            )
-            response.raise_for_status()
-            data = response.json()
-        except (httpx.HTTPError, ValueError):
+        ref = self._mapping.find_work(work)
+        if ref is None:
             return []
-        return [item["id"] for item in data.get("data", [])[: self._max_works]]
-
-    def _fetch_lite(self, subject_id: int) -> dict[str, Any] | None:
-        """anitabi 作品巡礼轻量信息（城市等）；404/故障返回 None（无数据）。"""
         try:
-            response = self._client.get(f"{ANITABI_BASE_URL}/bangumi/{subject_id}/lite")
-            if response.status_code == 404:
-                return None
-            response.raise_for_status()
-            return response.json()
-        except (httpx.HTTPError, ValueError):
-            return None
-
-    def _fetch_points(self, subject_id: int) -> list[dict[str, Any]]:
-        """anitabi 全部巡礼地标（含截图）；故障降级为空列表。"""
-        try:
-            response = self._client.get(
-                f"{ANITABI_BASE_URL}/bangumi/{subject_id}/points/detail",
-                params={"haveImage": "true"},
-            )
-            response.raise_for_status()
-            data = response.json()
-        except (httpx.HTTPError, ValueError):
+            result = self._client.fetch_seichi(ref.subject_id, work)
+        except httpx.HTTPError as exc:
+            raise SeichiSourceUnavailable(
+                "圣地数据服务暂时不可用，请稍后重试"
+            ) from exc
+        if result is None or not result.seichi:
+            raise NoSeichiData(f"《{ref.name}》没有圣地巡礼数据")
+        if area and not area_matches(area, result.city):
             return []
-        return data if isinstance(data, list) else []
+        return result.seichi

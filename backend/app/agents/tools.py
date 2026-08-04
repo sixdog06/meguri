@@ -8,6 +8,7 @@ from collections.abc import Callable
 from dataclasses import asdict
 from typing import Any, Protocol
 
+from app.adapters.anitabi import NoSeichiData
 from app.adapters.ports import (
     CorpusStore,
     LLMGateway,
@@ -29,6 +30,9 @@ class Tool(Protocol):
     #: 结构化输出通道（约定）：工具把最近一次 run 的结构化结果放在这里，
     #: Orchestrator 按工具名收集进消息 payload；无结构化输出的工具保持 None。
     structured: Any
+    #: 用户可见提示通道（约定）：非错误的显式业务结果（如"该作品没有圣地
+    #: 巡礼数据"）放这里，Orchestrator 收进 payload["notice"] 随响应返回。
+    notice: str | None
     #: 进度回调（约定）：支持进度上报的工具暴露该属性，Orchestrator 在每次
     #: 回复前注入（发布 planning 事件到 SSE）；不暴露该属性的工具不上报。
     progress_sink: Callable[[str], None] | None
@@ -54,12 +58,22 @@ class SearchSeichiTool:
     def __init__(self, repository: SeichiRepository) -> None:
         self._repository = repository
         self.structured: list[Seichi] | None = None
+        self.notice: str | None = None
 
     def run(self, args: dict[str, Any]) -> str:
-        """检索候选圣地：观察值是候选 JSON（空则纯文本“没有找到…”）。"""
+        """检索候选圣地：观察值是候选 JSON；空结果分三种如实区分——
+        未收录（普通空）、无巡礼数据（NoSeichiData，显式提示）、
+        数据源故障（SeichiSourceUnavailable 上抛，API 映射 503）。
+        """
         work = str(args.get("work") or "").strip()
         area = str(args.get("area") or "").strip()
-        self.structured = self._repository.search_seichi(work, area)
+        self.notice = None
+        try:
+            self.structured = self._repository.search_seichi(work, area)
+        except NoSeichiData as exc:
+            self.structured = []
+            self.notice = str(exc)
+            return f"《{work}》没有圣地巡礼数据（不是检索失败，是该作品在 anitabi 无记录）"
         if not self.structured:
             return "没有找到符合条件的圣地"
         return json.dumps([asdict(s) for s in self.structured], ensure_ascii=False)
@@ -95,6 +109,7 @@ class PlanItineraryTool:
         self._corpus = corpus
         self._llm = llm  # 提供时 Storyteller 走生成式讲解（真实模型）
         self.structured: dict[str, Any] | None = None
+        self.notice: str | None = None
         self.progress_sink: Callable[[str], None] | None = None
 
     def _progress(self, stage: str) -> None:
@@ -120,7 +135,13 @@ class PlanItineraryTool:
             budget_yen = None
 
         self._progress("检索中")
-        seichi = self._repository.search_seichi(work, area)
+        self.notice = None
+        try:
+            seichi = self._repository.search_seichi(work, area)
+        except NoSeichiData as exc:
+            self.notice = str(exc)
+            self.structured = None
+            return f"《{work}》没有圣地巡礼数据，无法规划行程（该作品在 anitabi 无记录，不是检索失败）"
         if not seichi:
             self.structured = None
             return "没有找到候选圣地，无法规划行程"

@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.adapters.anitabi import NoSeichiData, SeichiSourceUnavailable
 from app.adapters.llm import LLMUnavailableError
 from app.adapters.ports import (
     CorpusStore,
@@ -166,11 +167,13 @@ class ItineraryResponse(BaseModel):
 
 
 class PostMessageResponse(BaseModel):
-    """发消息响应：回复文本 + 本轮的结构化产出（候选圣地/行程快照）。"""
+    """发消息响应：回复文本 + 本轮的结构化产出（候选圣地/行程快照）+
+    用户可见提示（非错误的显式业务结果，如"该作品没有圣地巡礼数据"）。"""
 
     reply: str
     seichi: list[SeichiCandidate] = []  # 本轮检索出的结构化候选圣地
     itinerary: ItineraryOut | None = None  # 本轮生成的行程快照
+    notice: str | None = None  # 显式业务提示（区别于故障 503 与"还在加载"）
 
 
 class MessageOut(BaseModel):
@@ -266,12 +269,16 @@ def post_message(
     except LLMUnavailableError:
         # 模型服务不可达（重试后仍失败）：友好 503，不炸 500
         raise HTTPException(status_code=503, detail="模型服务暂时不可用，请稍后重试") from None
+    except SeichiSourceUnavailable as exc:
+        # anitabi 不可达（网络/超时/403/间隙页）：显式 503，不降级本地数据包
+        raise HTTPException(status_code=503, detail=str(exc)) from None
     # 结构化结果按工具名收集（见 Tool 协议 structured 约定通道）
     payload = assistant_message.payload or {}
     return PostMessageResponse(
         reply=assistant_message.content,
         seichi=payload.get("search_seichi", []),
         itinerary=payload.get("plan_itinerary"),
+        notice=payload.get("notice"),
     )
 
 
@@ -321,7 +328,12 @@ def get_candidates(
     """“添加圣地”的候选列表：同作品/地区检索结果中排除已在行程内的。"""
     payload = _latest_itinerary_payload(conversation_id, session)
     in_itinerary = {str(s["id"]) for d in payload["days"] for s in d["seichi"]}
-    results = repository.search_seichi(payload.get("work") or "", payload.get("area") or "")
+    try:
+        results = repository.search_seichi(payload.get("work") or "", payload.get("area") or "")
+    except SeichiSourceUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
+    except NoSeichiData:
+        results = []  # 该作品无巡礼数据 ≠ 故障：返回空候选（200），与 503 区分
     return CandidatesResponse(
         candidates=[asdict(s) for s in results if str(s.id) not in in_itinerary]
     )

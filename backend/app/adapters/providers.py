@@ -6,7 +6,7 @@ LLM 由 MEGURI_ADAPTER_MODE 控制；圣地数据源由独立的 MEGURI_SEICHI_M
 HTTP 缝 override 这些 provider。
 """
 
-from app.adapters.anitabi import AnitabiSeichiRepository
+from app.adapters.anitabi import AnitabiClient, AnitabiSeichiRepository
 from app.adapters.fakes import (
     FakeLLMGateway,
     FakeOpeningHours,
@@ -54,12 +54,16 @@ def generative_llm(llm: LLMGateway) -> LLMGateway | None:
 
 
 def get_seichi_repository() -> SeichiRepository:
-    """按 seichi_mode 选圣地数据源：live=anitabi 在线，file=离线数据包，fake=内存。"""
+    """按 seichi_mode 选圣地数据源：live=本地映射+anitabi 实时（故障显式 503，
+    不降级本地数据包），file=纯离线数据包（映射+离线切片），fake=内存。"""
     settings = get_settings()
     if settings.seichi_mode == "live":
-        return AnitabiSeichiRepository()
+        return AnitabiSeichiRepository(
+            mapping=FileSeichiRepository(settings.seichi_data_dir),
+            client=AnitabiClient(),
+        )
     if settings.seichi_mode == "file":
-        # 离线数据包（真实 anitabi 切片），anitabi 网络不可达时的 demo 模式
+        # 纯离线数据包（真实 anitabi 切片），完全不触网时用
         return FileSeichiRepository(settings.seichi_data_dir)
     return FakeSeichiRepository()
 

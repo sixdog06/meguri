@@ -30,7 +30,58 @@ def test_find_work_关键词匹配():
 
 
 def test_find_work_未收录作品返回None():
-    assert FileSeichiRepository(DATA_DIR).find_work("轻音少女") is None
+    assert FileSeichiRepository(DATA_DIR).find_work("完全不存在的作品xyz") is None
+
+
+def test_find_work_空或纯空白输入返回None(tmp_path):
+    """空查询包含于任何字符串，会误命中索引首条——必须直接 None。"""
+    works = tmp_path / "anime-2000plus.json"
+    works.write_text(json.dumps([{"id": 1, "name": "X", "name_cn": "Y"}]))
+    repo = FileSeichiRepository(data_dir=str(tmp_path), works_file=str(works))
+
+    assert repo.find_work("") is None
+    assert repo.find_work("   ") is None
+
+
+def test_works索引只读一次盘(tmp_path, monkeypatch):
+    """9MB 全量索引进程内缓存：连续 find_work 不重复读盘（mtime 未变）。"""
+    works = tmp_path / "anime-2000plus.json"
+    works.write_text(json.dumps([
+        {"id": 1, "name": "A", "name_cn": "甲"},
+        {"id": 2, "name": "B", "name_cn": "乙"},
+    ]))
+    read_calls = []
+    from pathlib import Path
+
+    real_read_text = Path.read_text
+
+    def counting_read_text(self, *args, **kwargs):
+        if self.name == "anime-2000plus.json":
+            read_calls.append(str(self))
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", counting_read_text)
+    repo = FileSeichiRepository(data_dir=str(tmp_path), works_file=str(works))
+
+    repo.find_work("甲")
+    repo.find_work("乙")
+
+    assert len(read_calls) == 1  # 第二次命中缓存
+
+
+def test_works索引_mtime变化才重读(tmp_path):
+    works = tmp_path / "anime-2000plus.json"
+    works.write_text(json.dumps([{"id": 1, "name": "A", "name_cn": "甲"}]))
+    repo = FileSeichiRepository(data_dir=str(tmp_path), works_file=str(works))
+    assert repo.find_work("甲") is not None
+
+    import os, time
+
+    time.sleep(0.01)
+    os.utime(works)  # mtime 变化 → 重读
+    works.write_text(json.dumps([{"id": 1, "name": "A", "name_cn": "改"}]))
+    os.utime(works)
+    assert repo.find_work("改") is not None
 
 
 def test_缺数据目录优雅降级为空(tmp_path):

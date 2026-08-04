@@ -1,0 +1,29 @@
+/* 设计令牌：日式极简（宣纸 / 墨 / 朱）—— 全站共用 */
+:root {
+  --paper: #faf9f5; /* 宣纸 */
+  --paper-deep: #f1eee5; /* 稍深的纸色（气泡、卡片底） */
+  --ink: #2a2926; /* 墨 */
+  --ink-soft: #6b675c;
+  --ink-faint: #9b9587;
+  --line: #e6e1d5; /* 发丝边框 */
+  --accent: #b5432f; /* 朱 */
+  --accent-soft-bg: #f7e8e3;
+  --amber-bg: #f3ead3;
+  --amber-ink: #8a6d3b;
+  --shadow:
+    0 1px 2px rgb(42 41 38 / 0.05),
+    0 8px 24px rgb(42 41 38 / 0.08);
+  --font-serif: 'Noto Serif SC', 'Songti SC', serif;
+  --font-sans: 'Noto Sans SC', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--ink);
+  background: var(--paper);
+}
+
+#app {
+  height: 100vh;
+}

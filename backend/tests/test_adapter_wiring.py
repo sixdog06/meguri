@@ -20,9 +20,12 @@ def test_fake_mode_wires_fake_adapters(monkeypatch):
 
 
 def test_live_seichi_mode_wires_anitabi_repository(monkeypatch):
+    from app.adapters import anitabi
+
     monkeypatch.setenv("MEGURI_SEICHI_MODE", "live")
     providers.get_settings.cache_clear()
 
+    # live = 本地映射 + anitabi 实时（故障显式 503，不降级本地数据包）
     assert isinstance(providers.get_seichi_repository(), anitabi.AnitabiSeichiRepository)
 
 

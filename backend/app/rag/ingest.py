@@ -1,7 +1,8 @@
-"""RAG 语料灌库（#8）：bgm.tv 作品条目 + anitabi 地标 → CorpusStore。
+"""RAG 语料灌库（#8）：本地作品索引 summary + anitabi 地标 → CorpusStore。
 
 语料事实（如实记录）：
-- bgm.tv /v0/subjects/{id} 的 summary 是真实自由文本（作品简介）；
+- 作品简介读本地 data/works/anime-1990plus.json（Bangumi 离线灌库产物，
+  含 summary 字段，运行时不触 bgm.tv）；
 - anitabi /points/detail **没有地标自由文本/评论字段**（只有名称、集数、
   坐标、截图、来源）——anitabi 语料是"元数据文本化"（名称+出处集数拼句），
   不是地标描述原文。
@@ -9,7 +10,7 @@
   ADR-0001），不直调数据源、不碰私有方法。
 
 幂等（chunk id 稳定，upsert 覆盖）；离线/网络正常处都能跑——本机 IP 被
-Cloudflare 封在 api.anitabi.cn 时 anitabi 部分会取不到（bgm.tv 本机可达）。
+Cloudflare 封在 api.anitabi.cn 时 anitabi 部分会取不到。
 
 用法：
   MEGURI_CORPUS_MODE=live MEGURI_DATABASE_URL=... \
@@ -17,10 +18,9 @@ Cloudflare 封在 api.anitabi.cn 时 anitabi 部分会取不到（bgm.tv 本机�
 """
 
 import argparse
+import json
+from pathlib import Path
 
-import httpx
-
-from app.adapters.anitabi import USER_AGENT
 from app.adapters.ports import CorpusChunk, CorpusStore, Seichi, SeichiRepository
 from app.adapters.providers import get_corpus_store, get_seichi_repository
 
@@ -61,20 +61,34 @@ def chunks_from_seichi(seichi: list[Seichi], subject_id: int | None = None) -> l
 
 
 def collect_chunks(work: str, max_points: int = 200) -> list[CorpusChunk]:
-    """在线抓取某作品的全部语料（bgm.tv 条目 + anitabi 地标，经 repository）。"""
+    """抓取某作品的全部语料（本地作品索引的 summary + anitabi 地标）。
+
+    作品简介读本地 data/works/anime-1990plus.json（离线灌库已含 summary，
+    与数据层架构一致，不再实时调 bgm.tv）。
+    """
     repo: SeichiRepository = get_seichi_repository()
     work_ref = repo.find_work(work)
     if work_ref is None:
         raise SystemExit(f"找不到作品巡礼数据：{work}")
 
-    # 作品简介（bgm.tv 元数据，非圣地数据——经 subjectID 直取）
-    client = httpx.Client(timeout=15, headers={"User-Agent": USER_AGENT})
-    subject = client.get(f"https://api.bgm.tv/v0/subjects/{work_ref.subject_id}").json()
-    chunks = chunks_from_bangumi_subject(subject)
+    subject = _find_in_works_index(work_ref.subject_id)
+    chunks = chunks_from_bangumi_subject(subject) if subject else []
 
     seichi = repo.search_seichi(work, "")[:max_points]
     chunks += chunks_from_seichi(seichi, subject_id=work_ref.subject_id)
     return chunks
+
+
+_WORKS_INDEX_PATH = Path(__file__).resolve().parents[2] / "data/works/anime-1990plus.json"
+
+
+def _find_in_works_index(subject_id: int) -> dict | None:
+    """本地全量动画索引按 id 查条目；缺文件/未收录返回 None（语料缺简介不致命）。"""
+    try:
+        works = json.loads(_WORKS_INDEX_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return next((w for w in works if w.get("id") == subject_id), None)
 
 
 def main() -> None:

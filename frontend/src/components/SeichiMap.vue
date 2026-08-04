@@ -88,9 +88,11 @@ function renderMarkers() {
 onMounted(() => {
   if (!mapEl.value) return
   map = L.map(mapEl.value).setView([36.2, 138.25], 5) // 默认俯瞰日本列岛
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    maxZoom: 19,
+  // CARTO Positron 淡色瓦片：底图几乎无色，路线与标点是唯一视觉焦点
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    maxZoom: 20,
   }).addTo(map)
   markers = L.layerGroup().addTo(map)
   renderMarkers()

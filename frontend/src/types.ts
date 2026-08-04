@@ -86,8 +86,8 @@ export interface Itinerary {
   budget: Budget | null
 }
 
-/** 每日路线颜色（地图 polyline 与按天视图的色点共用）。 */
-export const DAY_COLORS = ['#e11d48', '#2563eb', '#059669', '#d97706', '#7c3aed', '#0891b2', '#be185d']
+/** 每日路线颜色（地图 polyline 与按天视图的色点共用）。低饱和传统色，呼应整体日式极简基调。 */
+export const DAY_COLORS = ['#b5432f', '#4a6b82', '#6f8560', '#b98a3e', '#7d6b8f', '#4f8280', '#a85d72']
 
 export function dayColor(day: number): string {
   return DAY_COLORS[(day - 1) % DAY_COLORS.length]

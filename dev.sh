@@ -9,9 +9,9 @@ docker compose up -d db
 export MEGURI_DATABASE_URL=postgresql+psycopg://meguri:meguri@localhost:5433/meguri
 # 真实 LLM（key 在 .env.local，已 gitignore）：对话理解/工具调用/生成式讲解
 export MEGURI_ADAPTER_MODE=live
-# 圣地数据源：本机 IP 被 Cloudflare 间歇性封在 api.anitabi.cn，默认用离线
-# 数据包（data/seichi/，真实 anitabi 切片）；网络正常处改 MEGURI_SEICHI_MODE=live
-export MEGURI_SEICHI_MODE=file
+# 圣地数据源：live = anitabi 实时（故障显式 503，不降级本地数据包）；
+# 完全不触网可改 MEGURI_SEICHI_MODE=file（本地数据包，开发 fake 用）
+export MEGURI_SEICHI_MODE=live
 # 交通/开放时间走本地 OTP（otp/download.sh + otp/build.sh 先建 graph，
 # docker compose up -d otp 起服务；OTP 未起时 Navigator 自动降级为估算段）
 export MEGURI_TRANSIT_MODE=live

@@ -10,3 +10,4 @@ otp/data/
 .env.local
 .dev-logs/
 .idea/
+data/seichi/.ingest_progress.json
