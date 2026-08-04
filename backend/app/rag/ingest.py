@@ -78,6 +78,7 @@ def collect_chunks(work: str, max_points: int = 200) -> list[CorpusChunk]:
 
 
 def main() -> None:
+    """CLI 入口：python -m app.rag.ingest --work <作品名>（幂等灌库）。"""
     parser = argparse.ArgumentParser(description="灌 RAG 语料进 CorpusStore（幂等）")
     parser.add_argument("--work", required=True, help="作品名（如 吹响吧！上低音号）")
     parser.add_argument("--max-points", type=int, default=200)

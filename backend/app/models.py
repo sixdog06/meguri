@@ -1,6 +1,5 @@
-"""会话主干的持久化模型。
-
-Conversation = 会话，Message = 消息（见 CONTEXT.md 领域语言）。
+"""持久化模型：会话（Conversation）/消息（Message）/行程快照（Itinerary）/
+RAG 语料块（CorpusChunkRow）。领域语言见 CONTEXT.md。
 """
 
 import uuid
@@ -15,10 +14,13 @@ from app.db import Base
 
 
 def _utcnow() -> datetime:
+    """UTC 当前时间（字段默认值工厂；不用 naive localtime）。"""
     return datetime.now(timezone.utc)
 
 
 class Conversation(Base):
+    """会话：一次巡礼咨询的对话容器；消息经 relationship 按 id 排序级联。"""
+
     __tablename__ = "conversations"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -32,6 +34,9 @@ class Conversation(Base):
 
 
 class Message(Base):
+    """消息：会话中的单条发言（user/assistant）；assistant 可带结构化 payload
+    （工具产出，按工具名组织，如 search_seichi 候选、plan_itinerary 快照）。"""
+
     __tablename__ = "messages"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)

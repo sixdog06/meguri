@@ -33,7 +33,9 @@ class Tool(Protocol):
     #: 回复前注入（发布 planning 事件到 SSE）；不暴露该属性的工具不上报。
     progress_sink: Callable[[str], None] | None
 
-    def run(self, args: dict[str, Any]) -> str: ...
+    def run(self, args: dict[str, Any]) -> str:
+        """执行工具：args 为线格式里的 JSON 参数；返回给 LLM 的观察值文本。"""
+        ...
 
 
 class SearchSeichiTool:
@@ -54,6 +56,7 @@ class SearchSeichiTool:
         self.structured: list[Seichi] | None = None
 
     def run(self, args: dict[str, Any]) -> str:
+        """检索候选圣地：观察值是候选 JSON（空则纯文本“没有找到…”）。"""
         work = str(args.get("work") or "").strip()
         area = str(args.get("area") or "").strip()
         self.structured = self._repository.search_seichi(work, area)
@@ -95,10 +98,15 @@ class PlanItineraryTool:
         self.progress_sink: Callable[[str], None] | None = None
 
     def _progress(self, stage: str) -> None:
+        """上报规划阶段（progress_sink 未注入时为空转）。"""
         if self.progress_sink is not None:
             self.progress_sink(stage)
 
     def run(self, args: dict[str, Any]) -> str:
+        """生成行程快照：检索 → 聚类规划 → 校验/预算/讲解收尾 → JSON 观察值。
+
+        参数容忍模型给的脏值（days 非整数、预算非法一律回退默认）。
+        """
         work = str(args.get("work") or "").strip()
         area = str(args.get("area") or "").strip()
         try:
@@ -137,14 +145,19 @@ class PlanItineraryTool:
 
 
 class ToolRegistry:
+    """按名查找的工具注册表；Orchestrator 经它解析 tool_call 与生成工具清单。"""
+
     def __init__(self) -> None:
         self._tools: dict[str, Tool] = {}
 
     def register(self, tool: Tool) -> None:
+        """注册工具（同名覆盖）。"""
         self._tools[tool.name] = tool
 
     def get(self, name: str) -> Tool | None:
+        """按名取工具；不存在返回 None（编排层据此回“工具不存在”观察）。"""
         return self._tools.get(name)
 
     def list(self) -> list[Tool]:
+        """全部已注册工具（system prompt 工具清单、progress_sink 注入用）。"""
         return list(self._tools.values())

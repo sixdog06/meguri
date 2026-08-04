@@ -22,6 +22,7 @@ class FileSeichiRepository:
         self._dir = path if path.is_absolute() else _REPO_ROOT / path
 
     def _load_index(self) -> dict[str, int]:
+        """读作品索引（关键词→subjectID）；缺文件/坏 JSON 降级为空索引。"""
         try:
             data = json.loads((self._dir / "index.json").read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -29,18 +30,21 @@ class FileSeichiRepository:
         return {k: v for k, v in data.items() if not k.startswith("_") and k != "comment"}
 
     def _load_work(self, subject_id: int) -> dict | None:
+        """读某作品数据文件；不存在/坏 JSON 返回 None（优雅降级）。"""
         try:
             return json.loads((self._dir / f"{subject_id}.json").read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return None
 
     def _match_subject(self, work: str) -> int | None:
+        """按关键词包含关系匹配作品 subjectID；未收录返回 None。"""
         for keyword, subject_id in self._load_index().items():
             if keyword in work:
                 return subject_id
         return None
 
     def find_work(self, work: str) -> WorkRef | None:
+        """作品名 → WorkRef；未收录或数据文件缺失返回 None。"""
         subject_id = self._match_subject(work)
         if subject_id is None:
             return None
@@ -54,6 +58,7 @@ class FileSeichiRepository:
         )
 
     def search_seichi(self, work: str, area: str) -> list[Seichi]:
+        """数据包内检索：关键词匹配作品 → 点列表按地区宽松过滤 → Seichi。"""
         subject_id = self._match_subject(work)
         if subject_id is None:
             return []

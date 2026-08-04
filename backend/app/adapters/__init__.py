@@ -1,2 +1,1 @@
-"""Ports for external services (app.adapters.ports), fakes (app.adapters.fakes),
-and the fake/live wiring (app.adapters.providers)."""
+"""适配器层：端口（ports）与其实现——fake、live（anitabi/OTP/LLM）、离线数据包。"""

@@ -1,9 +1,9 @@
-"""Adapter wiring：按 settings 选择 fake 或 live 实现。
+"""Adapter wiring：按 settings 选择 fake / live / file 实现。
 
-LLM/Transit 由 MEGURI_ADAPTER_MODE 控制；圣地数据源由独立的
-MEGURI_SEICHI_MODE 控制（#4，与 LLM 解耦——真实 LLM 尚未接入，圣地检索
-已可直连 anitabi）。这是唯一消费这些配置的地方；其余代码依赖端口
-（app.adapters.ports），测试在 HTTP 缝 override 这些 provider。
+LLM 由 MEGURI_ADAPTER_MODE 控制；圣地数据源由独立的 MEGURI_SEICHI_MODE
+控制（#4，与 LLM 解耦）；交通/开放时间/语料库各有 *_mode 开关。这是唯一
+消费这些配置的地方；其余代码依赖端口（app.adapters.ports），测试在
+HTTP 缝 override 这些 provider。
 """
 
 from app.adapters.anitabi import AnitabiSeichiRepository
@@ -34,6 +34,7 @@ def _live_not_available(name: str) -> None:
 
 
 def get_llm_gateway() -> LLMGateway:
+    """按 adapter_mode 选 LLM 网关：live=LangChain 真实模型（缺 key 明确报错），fake=脚本化。"""
     settings = get_settings()
     if settings.adapter_mode == "live":
         if not settings.openai_api_key:
@@ -53,6 +54,7 @@ def generative_llm(llm: LLMGateway) -> LLMGateway | None:
 
 
 def get_seichi_repository() -> SeichiRepository:
+    """按 seichi_mode 选圣地数据源：live=anitabi 在线，file=离线数据包，fake=内存。"""
     settings = get_settings()
     if settings.seichi_mode == "live":
         return AnitabiSeichiRepository()
@@ -63,6 +65,7 @@ def get_seichi_repository() -> SeichiRepository:
 
 
 def get_transit_client() -> TransitClient:
+    """按 transit_mode 选交通查询：live=本地 OTP（GraphQL），fake=估算占位。"""
     settings = get_settings()
     if settings.transit_mode == "live":
         return OTPTransitClient(settings.otp_base_url)
@@ -70,6 +73,7 @@ def get_transit_client() -> TransitClient:
 
 
 def get_opening_hours_source() -> OpeningHoursSource:
+    """按 hours_mode 选开放时间源：live=Overpass（OSM），fake=空数据。"""
     settings = get_settings()
     if settings.hours_mode == "live":
         return OverpassOpeningHours(settings.overpass_url)

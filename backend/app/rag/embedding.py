@@ -52,13 +52,17 @@ def tokenize(text: str) -> list[str]:
 
 
 class HashEmbeddingProvider:
+    """确定性哈希向量：同一文本恒得同向量，共享 token 的文本余弦相近。"""
+
     def __init__(self, dim: int = EMBEDDING_DIM) -> None:
         self._dim = dim
 
     def embed(self, texts: list[str]) -> list[list[float]]:
+        """EmbeddingProvider 契约：逐文本返回 dim 维向量（确定性）。"""
         return [self._embed_one(text) for text in texts]
 
     def _embed_one(self, text: str) -> list[float]:
+        """token 桶哈希计数 + L2 归一化。"""
         vector = [0.0] * self._dim
         for token in tokenize(text):
             bucket = int(hashlib.md5(token.encode()).hexdigest(), 16) % self._dim

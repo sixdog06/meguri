@@ -52,6 +52,7 @@ class Narration:
 
 
 def _excerpt(text: str) -> str:
+    """语料原文摘录（拼装模式）：截 _EXCERPT_LEN 字，超长补省略号。"""
     return text[:_EXCERPT_LEN] + ("…" if len(text) > _EXCERPT_LEN else "")
 
 

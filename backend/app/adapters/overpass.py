@@ -10,6 +10,8 @@ _RADIUS_M = 200
 
 
 class OverpassOpeningHours:
+    """OpeningHoursSource 的 Overpass 实现（构造可注入 httpx.Client 便于测试）。"""
+
     def __init__(
         self,
         url: str = "https://overpass-api.de/api/interpreter",
@@ -21,6 +23,7 @@ class OverpassOpeningHours:
         self._client = client or httpx.Client(timeout=timeout)
 
     def opening_hours(self, lat: float, lng: float) -> str | None:
+        """查坐标附近的 OSM opening_hours 标签；失败/无数据返回 None（不误标）。"""
         query = (
             f"[out:json];(node(around:{_RADIUS_M},{lat},{lng})[opening_hours];"
             f"way(around:{_RADIUS_M},{lat},{lng})[opening_hours];);out tags 5;"

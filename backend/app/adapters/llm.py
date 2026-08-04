@@ -44,6 +44,7 @@ class LangChainLLMGateway:
         )
 
     def complete(self, messages: list[dict[str, str]]) -> str:
+        """调 chat 模型返回文本；连接类错误重试后抛 LLMUnavailableError。"""
         converted = [self._convert(m) for m in messages]
         last_error: Exception | None = None
         for attempt in range(self.MAX_RETRIES + 1):
@@ -61,6 +62,7 @@ class LangChainLLMGateway:
 
     @staticmethod
     def _convert(message: dict[str, str]) -> BaseMessage:
+        """自研 wire format 的消息 → LangChain 消息对象。"""
         role = message.get("role", "user")
         content = message.get("content", "")
         if role == "system":

@@ -1,7 +1,6 @@
-"""Deterministic fakes for the adapter ports.
-
-Used by tests (wired at the HTTP seam via dependency overrides) and by local
-development while live adapters don't exist yet.
+"""适配器端口的确定性 fake：离线测试（HTTP 缝 dependency override）与本地
+开发兜底用。FakeLLMGateway 另含一套演示启发式（关键词编排工具调用），
+仅供无真 LLM 时的页面演示，生产走真实模型。
 """
 
 import json
@@ -27,6 +26,11 @@ _BUDGET_PATTERN = re.compile(r"预算\s*约?\s*([0-9][0-9,]*)\s*(?:日元|円|�
 
 
 class FakeLLMGateway:
+    """脚本化 LLM fake：有 scripted 按序弹出；无脚本走关键词演示启发式。
+
+    calls 记录每次 complete 的完整入参，供测试断言 prompt/循环行为。
+    """
+
     generative_capable = False  # scripted 输出只喂 ReAct 循环（见 LLMGateway 协议）
 
     def __init__(self, scripted: list[str] | None = None) -> None:
@@ -34,6 +38,7 @@ class FakeLLMGateway:
         self.calls: list[list[dict[str, str]]] = []  # 每次 complete 收到的消息，供测试断言
 
     def complete(self, messages: list[dict[str, str]]) -> str:
+        """LLMGateway 契约：返回 wire format JSON 或纯文本（由编排层解析）。"""
         self.calls.append(messages)
         if self._scripted:
             return self._scripted.pop(0)
@@ -68,6 +73,7 @@ class FakeLLMGateway:
 
     @staticmethod
     def _summarize_observation(content: str) -> str:
+        """工具观察 → 汇总话术：行程快照报天数/站数，候选列表报个数，否则原文。"""
         try:
             data = json.loads(content)
         except json.JSONDecodeError:
@@ -81,11 +87,14 @@ class FakeLLMGateway:
 
 
 class FakeSeichiRepository:
+    """固定数据集的圣地仓库 fake；calls 记录检索入参供测试断言走端口。"""
+
     def __init__(self, seichi: list[Seichi] | None = None) -> None:
         self._seichi = list(seichi or [])
         self.calls: list[tuple[str, str]] = []  # 每次 search_seichi 的 (work, area)，供测试断言
 
     def search_seichi(self, work: str, area: str) -> list[Seichi]:
+        """按作品精确匹配 + 地区宽松匹配（与 live 实现语义一致）过滤固定数据集。"""
         self.calls.append((work, area))
         # 地区宽松匹配，与 live 实现（anitabi 城市名）语义一致
         return [
@@ -95,7 +104,8 @@ class FakeSeichiRepository:
         ]
 
     def find_work(self, work: str) -> Any:
-        return None  # fake 不做作品解析（测试不经此路径；需要时自行子类化）
+        """fake 不做作品解析，恒 None（测试不经此路径；需要时自行子类化）。"""
+        return None
 
 
 class FakeTransitClient:
@@ -115,6 +125,7 @@ class FakeTransitClient:
         *,
         depart_at: Any = None,
     ) -> dict[str, Any]:
+        """TransitClient 契约：scripted 按序弹出；否则返回 estimate=True 占位。"""
         self.calls.append((origin, destination, depart_at))
         if self._scripted:
             return self._scripted.pop(0)
@@ -128,4 +139,5 @@ class FakeOpeningHours:
         self._hours = dict(hours or {})
 
     def opening_hours(self, lat: float, lng: float) -> str | None:
+        """按精确坐标查固定数据；无记录返回 None（未知，与 live 降级语义一致）。"""
         return self._hours.get((lat, lng))

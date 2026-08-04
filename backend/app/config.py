@@ -1,3 +1,9 @@
+"""应用配置：全部运行时开关集中于此（MEGURI_ 环境变量前缀 + .env.local）。
+
+各 *_mode 开关选择适配器实现（fake/live/file），由 providers 唯一消费；
+openai_* 经 .env.local 注入（已 gitignore，勿入库）。
+"""
+
 from functools import lru_cache
 from typing import Literal
 
@@ -5,6 +11,8 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    """运行配置（环境变量 MEGURI_* 注入；字段即文档，见各行注释）。"""
+
     database_url: str = "postgresql+psycopg://meguri:meguri@localhost:5432/meguri"
     adapter_mode: Literal["fake", "live"] = "fake"
     # 圣地数据源独立开关（与 LLM 的 adapter_mode 解耦，见 #4）：
@@ -41,4 +49,5 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
+    """进程级单例 Settings；测试改环境变量后需 get_settings.cache_clear() 重建。"""
     return Settings()

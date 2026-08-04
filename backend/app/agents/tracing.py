@@ -18,20 +18,29 @@ from typing import Any, Protocol
 
 @dataclass(frozen=True)
 class TraceEvent:
+    """单条 trace 事件：名称 + 负载 + UTC 时间戳（不可变，可安全传递/落盘）。"""
+
     name: str
     payload: dict[str, Any] = field(default_factory=dict)
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class Tracer(Protocol):
-    def record(self, name: str, payload: dict[str, Any]) -> None: ...
+    """Tracing 钩子端口：编排关键点经 record 上报事件（评测/调试消费）。"""
+
+    def record(self, name: str, payload: dict[str, Any]) -> None:
+        """记录一个事件（name 见模块头注释清单；payload 须可 JSON 序列化）。"""
+        ...
 
 
 class InMemoryTracer:
+    """内存 Tracer：事件留在 events 列表，测试/评测断言事件流用。"""
+
     def __init__(self) -> None:
         self.events: list[TraceEvent] = []
 
     def record(self, name: str, payload: dict[str, Any]) -> None:
+        """追加事件到内存列表。"""
         self.events.append(TraceEvent(name=name, payload=payload))
 
 
@@ -46,6 +55,7 @@ class JsonlTracer:
         self._path = path
 
     def record(self, name: str, payload: dict[str, Any]) -> None:
+        """追加一行 JSONL 到目标文件（每写即 flush 关文件，崩溃不丢已写行）。"""
         event = TraceEvent(name=name, payload=payload)
         line = json.dumps(
             {

@@ -17,6 +17,12 @@ BACKLOG_LIMIT = 100
 
 
 class EventBus:
+    """进度事件总线：按会话分发 received/thinking/planning/done/error 事件。
+
+    publish 同时写入 backlog（晚订阅的连接/测试也能拿到历史）并推给在线
+    订阅者；backlog 每会话封顶 BACKLOG_LIMIT 条防内存膨胀。
+    """
+
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._backlog: dict[str, deque[dict[str, Any]]] = defaultdict(
@@ -25,6 +31,7 @@ class EventBus:
         self._subscribers: dict[str, list[queue.Queue]] = defaultdict(list)
 
     def publish(self, conversation_id: str, event: str, data: dict[str, Any] | None = None) -> None:
+        """发布事件：先入 backlog，再推送给该会话的所有订阅队列。"""
         item = {"event": event, "data": data or {}}
         with self._lock:
             self._backlog[conversation_id].append(item)
@@ -33,6 +40,7 @@ class EventBus:
             q.put(item)
 
     def subscribe(self, conversation_id: str) -> "queue.Queue[dict[str, Any]]":
+        """订阅某会话：先回放 backlog 中的历史事件，再持续接收新事件。"""
         q: queue.Queue[dict[str, Any]] = queue.Queue()
         with self._lock:
             for item in self._backlog[conversation_id]:
@@ -41,4 +49,4 @@ class EventBus:
         return q
 
 
-event_bus = EventBus()
+event_bus = EventBus()  # 进程级单例（多实例部署时需换外部 broker，见模块注释）

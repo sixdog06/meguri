@@ -49,10 +49,14 @@ _default_tracer = InMemoryTracer()
 
 
 class CreateConversationResponse(BaseModel):
+    """创建会话响应：新会话的 UUID。"""
+
     conversation_id: str
 
 
 class PostMessageRequest(BaseModel):
+    """发消息请求体：单条用户文本。"""
+
     text: str
 
 
@@ -117,6 +121,8 @@ class NarrationOut(BaseModel):
 
 
 class ItineraryDayOut(BaseModel):
+    """行程中的一天：圣地序列 + 交通段 + 时间校验 + 讲解。"""
+
     day: int
     seichi: list[SeichiCandidate]
     legs: list[TransitLegOut]
@@ -125,6 +131,8 @@ class ItineraryDayOut(BaseModel):
 
 
 class BudgetItemOut(BaseModel):
+    """预算明细项（交通段或门票）。"""
+
     label: str
     amount_yen: int | None = None  # None = 未计价（不计入合计，不静默当 0）
 
@@ -152,16 +160,22 @@ class ItineraryOut(BaseModel):
 
 
 class ItineraryResponse(BaseModel):
+    """行程快照响应：当前有效快照；没有（或规划失败占位）为 null。"""
+
     itinerary: ItineraryOut | None = None
 
 
 class PostMessageResponse(BaseModel):
+    """发消息响应：回复文本 + 本轮的结构化产出（候选圣地/行程快照）。"""
+
     reply: str
     seichi: list[SeichiCandidate] = []  # 本轮检索出的结构化候选圣地
     itinerary: ItineraryOut | None = None  # 本轮生成的行程快照
 
 
 class MessageOut(BaseModel):
+    """历史消息（GET messages）：role/content + assistant 的结构化 payload。"""
+
     id: int
     role: str
     content: str
@@ -191,10 +205,12 @@ def get_tool_registry(
 
 
 def get_tracer() -> Tracer:
+    """默认进程内内存 tracer；测试/评测 override 成自己的（如 JsonlTracer）。"""
     return _default_tracer
 
 
 def get_event_bus() -> EventBus:
+    """进程级事件总线单例（SSE 端点与编排共享）。"""
     return event_bus
 
 
@@ -203,6 +219,7 @@ def get_orchestrator(
     tools: ToolRegistry = Depends(get_tool_registry),
     tracer: Tracer = Depends(get_tracer),
 ) -> Orchestrator:
+    """每请求装配 Orchestrator（依赖全部注入，可替换）。"""
     return Orchestrator(llm, tools=tools, tracer=tracer)
 
 
@@ -215,6 +232,7 @@ def valid_conversation_id(conversation_id: str) -> uuid.UUID:
 
 
 def _get_conversation_or_404(conversation_id: uuid.UUID, session: Session) -> Conversation:
+    """取会话，不存在则 404（各端点共用的前置校验）。"""
     conversation = session.get(Conversation, conversation_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail="会话不存在")
@@ -223,6 +241,7 @@ def _get_conversation_or_404(conversation_id: uuid.UUID, session: Session) -> Co
 
 @router.post("", response_model=CreateConversationResponse)
 def create_conversation(session: Session = Depends(get_session)) -> CreateConversationResponse:
+    """POST /api/conversations：创建空会话，返回其 UUID。"""
     conversation = Conversation()
     session.add(conversation)
     session.commit()
@@ -236,6 +255,10 @@ def post_message(
     orchestrator: Orchestrator = Depends(get_orchestrator),
     session: Session = Depends(get_session),
 ) -> PostMessageResponse:
+    """POST 消息：驱动 ReAct 循环产出回复；结构化工具产出随响应返回。
+
+    会话不存在 404；模型服务重试后仍不可达 503（assistant 侧不留脏数据）。
+    """
     try:
         assistant_message = orchestrator.reply(session, conversation_id, body.text)
     except ConversationNotFound:
@@ -270,6 +293,8 @@ def get_itinerary(
 
 
 class CandidatesResponse(BaseModel):
+    """“添加圣地”候选列表响应（排除已在行程内的）。"""
+
     candidates: list[SeichiCandidate]
 
 
@@ -347,6 +372,7 @@ def get_messages(
     conversation_id: uuid.UUID = Depends(valid_conversation_id),
     session: Session = Depends(get_session),
 ) -> list[MessageOut]:
+    """GET 会话全部消息（含 assistant 的结构化 payload；刷新页面恢复历史用）。"""
     conversation = _get_conversation_or_404(conversation_id, session)
     return [
         MessageOut(id=m.id, role=m.role, content=m.content, payload=m.payload)

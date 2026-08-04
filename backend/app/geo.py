@@ -6,6 +6,7 @@ EARTH_RADIUS_KM = 6371.0
 
 
 def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """两经纬度点间的球面直线距离（公里）；聚类、估算交通段、覆盖判断共用。"""
     p1, p2 = math.radians(lat1), math.radians(lat2)
     dp = math.radians(lat2 - lat1)
     dl = math.radians(lng2 - lng1)

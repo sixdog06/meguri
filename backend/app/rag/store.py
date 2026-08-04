@@ -32,12 +32,14 @@ class InMemoryCorpusStore:
             self.upsert(chunks)
 
     def upsert(self, chunks: list[CorpusChunk]) -> None:
+        """写入/覆盖语料块（按 id 幂等），并重算其向量。"""
         vectors = self._embedder.embed([c.text for c in chunks]) if chunks else []
         for chunk, vector in zip(chunks, vectors):
             self._chunks[chunk.id] = chunk
             self._vectors[chunk.id] = vector
 
     def search(self, query: str, k: int) -> list[CorpusChunk]:
+        """余弦相似度 top-k 检索；低于 min_score 阈值的一律不返回。"""
         query_vector = self._embedder.embed([query])[0]
         scored = [
             (cosine_similarity(query_vector, self._vectors[cid]), self._chunks[cid])
@@ -49,6 +51,8 @@ class InMemoryCorpusStore:
 
 
 class PgVectorCorpusStore:
+    """pgvector 版 live 实现：向量存 corpus_chunks 表，SQL 层做距离过滤与排序。"""
+
     def __init__(
         self,
         engine: Engine,
@@ -61,6 +65,7 @@ class PgVectorCorpusStore:
         self._max_distance = 1.0 - min_score  # 余弦距离 = 1 - 余弦相似度
 
     def upsert(self, chunks: list[CorpusChunk]) -> None:
+        """写入/覆盖语料块（merge 按主键幂等），向量随文本重算。"""
         if not chunks:
             return
         vectors = self._embedder.embed([c.text for c in chunks])
@@ -78,6 +83,7 @@ class PgVectorCorpusStore:
             session.commit()
 
     def search(self, query: str, k: int) -> list[CorpusChunk]:
+        """余弦距离 <=> 排序 top-k；超过 max_distance（= 1 - 阈值）不返回。"""
         vector = self._embedder.embed([query])[0]
         # psycopg 会把 list[float] 绑成 float8[]（没有到 vector 的 cast），
         # 传文本字面量再 ::vector 转换，无需注册驱动适配器

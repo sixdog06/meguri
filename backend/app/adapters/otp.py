@@ -68,6 +68,8 @@ def _fare_yen(itinerary: dict[str, Any]) -> int | None:
 
 
 class OTPTransitClient:
+    """TransitClient 的 OTP 实现：构造可注入 httpx.Client 便于回放测试。"""
+
     def __init__(
         self,
         base_url: str = "http://localhost:8081/otp",
@@ -85,6 +87,10 @@ class OTPTransitClient:
         *,
         depart_at: datetime | None = None,
     ) -> dict[str, Any]:
+        """点间路线查询：返回真实路网/换乘结果（见端口契约）；空路线/异常上抛。
+
+        长距离纯步行（GTFS 未覆盖）结果附带 degraded/note 降级提示。
+        """
         at = depart_at or datetime.now(_TOKYO)
         response = self._client.post(
             self._endpoint,

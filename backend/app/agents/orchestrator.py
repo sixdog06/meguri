@@ -30,7 +30,7 @@ from app.models import Conversation, Itinerary, Message
 
 
 class ConversationNotFound(Exception):
-    pass
+    """会话不存在（编排层语义；API 边界映射 404）。"""
 
 
 def _extract_json(raw: str) -> str:
@@ -80,6 +80,12 @@ def _system_prompt(tools: ToolRegistry) -> str:
 
 
 class Orchestrator:
+    """主对话 Agent（CONTEXT.md）：驱动 ReAct 循环、落库消息、分发进度事件。
+
+    依赖全部经构造注入（LLM 网关/工具注册表/tracer/事件总线），
+    测试在 HTTP 缝经 dependency override 替换。
+    """
+
     def __init__(
         self,
         llm: LLMGateway,
@@ -95,6 +101,11 @@ class Orchestrator:
         self._max_iterations = max_iterations
 
     def reply(self, session: Session, conversation_id: uuid.UUID, text: str) -> Message:
+        """处理一条用户消息：跑 ReAct 循环，返回落库后的 assistant 消息。
+
+        不变量：用户消息先落库；LLM 不可达（LLMUnavailableError）时推 error
+        事件并上抛，assistant 侧不留脏数据；工具结构化产出按工具名进 payload。
+        """
         conversation = session.get(Conversation, conversation_id)
         if conversation is None:
             raise ConversationNotFound(str(conversation_id))

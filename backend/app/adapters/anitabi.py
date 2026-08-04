@@ -28,6 +28,8 @@ USER_AGENT = "sixdog06/meguri (https://github.com/sixdog06/meguri)"
 
 
 class AnitabiSeichiRepository:
+    """SeichiRepository 的 anitabi 在线实现（构造可注入 httpx.Client 便于回放测试）。"""
+
     def __init__(
         self,
         *,
@@ -56,6 +58,10 @@ class AnitabiSeichiRepository:
         return None
 
     def search_seichi(self, work: str, area: str) -> list[Seichi]:
+        """作品名解析 → 逐作品拉巡礼地标，按地区过滤后归一为 Seichi 列表。
+
+        单作品失败（无巡礼数据/网络异常）跳过不影响其它作品；上限 max_results。
+        """
         results: list[Seichi] = []
         for subject_id in self._resolve_subject_ids(work):
             lite = self._fetch_lite(subject_id)
@@ -95,6 +101,7 @@ class AnitabiSeichiRepository:
         return bool(area and city) and (area in city or city in area)
 
     def _resolve_subject_ids(self, work: str) -> list[int]:
+        """bgm.tv 搜索动画条目，取前 max_works 个 subjectID；故障降级为空。"""
         try:
             response = self._client.post(
                 BANGUMI_SEARCH_URL,
@@ -107,6 +114,7 @@ class AnitabiSeichiRepository:
         return [item["id"] for item in data.get("data", [])[: self._max_works]]
 
     def _fetch_lite(self, subject_id: int) -> dict[str, Any] | None:
+        """anitabi 作品巡礼轻量信息（城市等）；404/故障返回 None（无数据）。"""
         try:
             response = self._client.get(f"{ANITABI_BASE_URL}/bangumi/{subject_id}/lite")
             if response.status_code == 404:
@@ -117,6 +125,7 @@ class AnitabiSeichiRepository:
             return None
 
     def _fetch_points(self, subject_id: int) -> list[dict[str, Any]]:
+        """anitabi 全部巡礼地标（含截图）；故障降级为空列表。"""
         try:
             response = self._client.get(
                 f"{ANITABI_BASE_URL}/bangumi/{subject_id}/points/detail",
