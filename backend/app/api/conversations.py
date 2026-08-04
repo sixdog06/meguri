@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.adapters.llm import LLMUnavailableError
 from app.adapters.ports import (
     CorpusStore,
     LLMGateway,
@@ -239,6 +240,9 @@ def post_message(
         assistant_message = orchestrator.reply(session, conversation_id, body.text)
     except ConversationNotFound:
         raise HTTPException(status_code=404, detail="会话不存在") from None
+    except LLMUnavailableError:
+        # 模型服务不可达（重试后仍失败）：友好 503，不炸 500
+        raise HTTPException(status_code=503, detail="模型服务暂时不可用，请稍后重试") from None
     # 结构化结果按工具名收集（见 Tool 协议 structured 约定通道）
     payload = assistant_message.payload or {}
     return PostMessageResponse(

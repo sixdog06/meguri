@@ -159,7 +159,11 @@ async function send() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
     })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    if (!res.ok) {
+      // 503/网络错误带后端 detail（如"模型服务暂时不可用"），展示具体原因
+      const body = (await res.json().catch(() => null)) as { detail?: string } | null
+      throw new Error(body?.detail ?? `请求失败：HTTP ${res.status}`)
+    }
     const body = (await res.json()) as {
       reply: string
       seichi?: SeichiCandidate[]

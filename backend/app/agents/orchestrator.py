@@ -21,6 +21,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.adapters.llm import LLMUnavailableError
 from app.adapters.ports import LLMGateway
 from app.agents.events import EventBus, event_bus
 from app.agents.tools import ToolRegistry
@@ -139,7 +140,17 @@ class Orchestrator:
             self._bus.publish(conversation_key, "thinking", {"step": step})
 
             self._tracer.record("llm_call", {"step": step})
-            raw = self._llm.complete(messages)
+            try:
+                raw = self._llm.complete(messages)
+            except LLMUnavailableError:
+                # 模型服务不可达：如实推送 error 事件后上抛（API 映射 503）；
+                # 不写半完成的 ReAct 状态（assistant 消息不落库）
+                self._bus.publish(
+                    conversation_key,
+                    "error",
+                    {"detail": "模型服务暂时不可用，请稍后重试"},
+                )
+                raise
             action = _parse_llm_output(raw)
 
             if action["type"] == "tool_call":

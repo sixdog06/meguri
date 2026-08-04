@@ -9,3 +9,4 @@ otp/src/
 otp/data/
 .env.local
 .dev-logs/
+.idea/
