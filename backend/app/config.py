@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     # 切片——anitabi 网络不可达时的 demo 模式）；fake 供测试。
     seichi_mode: Literal["fake", "live", "file"] = "live"
     seichi_data_dir: str = "data/seichi"
+    # 开发 debug 模式：true 时 anitabi 完全不触网，lite/points 返回固定
+    # 罐头数据（K-ON! 京都切片）；生产/发布前置 false。其余逻辑不变。
+    debug_mode: bool = False
     # 交通/开放时间数据源（#6）：live = 本地 OTP 服务 + Overpass。
     # 默认 fake（不依赖重服务）；dev.sh / compose 显式开 live。
     # OTP 不可达时 Navigator 自动降级为估算段（degraded 标记），不报错。

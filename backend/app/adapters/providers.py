@@ -60,7 +60,8 @@ def get_seichi_repository() -> SeichiRepository:
     if settings.seichi_mode == "live":
         return AnitabiSeichiRepository(
             mapping=FileSeichiRepository(settings.seichi_data_dir),
-            client=AnitabiClient(),
+            # debug_mode=true：anitabi 不触网，返回罐头数据（开发用）
+            client=AnitabiClient(debug=settings.debug_mode),
         )
     if settings.seichi_mode == "file":
         # 纯离线数据包（真实 anitabi 切片），完全不触网时用

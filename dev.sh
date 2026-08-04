@@ -12,6 +12,8 @@ export MEGURI_ADAPTER_MODE=live
 # 圣地数据源：live = anitabi 实时（故障显式 503，不降级本地数据包）；
 # 完全不触网可改 MEGURI_SEICHI_MODE=file（本地数据包，开发 fake 用）
 export MEGURI_SEICHI_MODE=live
+# debug 模式：anitabi 不触网，返回固定罐头数据（K-ON! 京都切片）；生产置 false
+export MEGURI_DEBUG_MODE=true
 # 交通/开放时间走本地 OTP（otp/download.sh + otp/build.sh 先建 graph，
 # docker compose up -d otp 起服务；OTP 未起时 Navigator 自动降级为估算段）
 export MEGURI_TRANSIT_MODE=live

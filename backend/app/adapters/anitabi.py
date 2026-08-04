@@ -5,9 +5,16 @@
 （网络/超时/403/非 JSON 间隙页）抛 SeichiSourceUnavailable（API 映射 503，
 **不降级本地数据包**）；anitabi 成功但无数据抛 NoSeichiData（显式区别于故障，
 前端可见提示"这部作品没有圣地巡礼数据"）。
+
+debug 模式（MEGURI_DEBUG_MODE=true，开发用）：完全不触 anitabi，lite/points
+都返回固定罐头数据（K-ON! 1424 的京都切片，debug_anitabi_points.json），
+其余逻辑（映射、过滤、错误区分）不变。
 """
 
+import json
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -64,6 +71,15 @@ def area_matches(area: str, city: str) -> bool:
     return bool(area and city) and (area in city or city in area)
 
 
+_DEBUG_POINTS_FILE = Path(__file__).with_name("debug_anitabi_points.json")
+
+
+@lru_cache
+def _debug_points() -> list[dict[str, Any]]:
+    """debug 模式罐头地标（K-ON! 1424 真实响应快照）；进程内只读一次盘。"""
+    return json.loads(_DEBUG_POINTS_FILE.read_text(encoding="utf-8"))
+
+
 def _parse_json(response: Any) -> Any:
     """响应 JSON 解析；非 JSON（间隙页/HTML）抛 InvalidAnitabiResponse。
 
@@ -79,7 +95,11 @@ def _parse_json(response: Any) -> Any:
 
 
 class AnitabiClient:
-    """anitabi 底层客户端（构造可注入 HTTP 客户端便于回放测试）。"""
+    """anitabi 底层客户端（构造可注入 HTTP 客户端便于回放测试）。
+
+    debug=True 时完全不触网：lite/points 返回固定罐头数据（开发调试用，
+    见模块头）；此时注入的 client 不会被使用。
+    """
 
     def __init__(
         self,
@@ -87,14 +107,20 @@ class AnitabiClient:
         timeout: float = 10.0,
         max_results: int = 60,
         client: Any = None,
+        debug: bool = False,
     ) -> None:
         # client 可注入 httpx.MockTransport 客户端（测试回放）；默认走
         # _CurlCffiClient（Cloudflare 按 TLS 指纹封 httpx，见该类 docstring）
         self._client = client or _CurlCffiClient(timeout)
         self._max_results = max_results
+        self._debug = debug
 
     def fetch_lite(self, subject_id: int) -> dict[str, Any] | None:
         """作品巡礼轻量信息；404 返回 None（无数据），网络/解析异常上抛。"""
+        if self._debug:
+            # 罐头 lite：cn 置空让 work_name 回退为用户查询名；城市固定京都
+            # （罐头 points 主要是 K-ON! 的京都切片）
+            return {"cn": "", "city": "京都市"}
         response = self._client.get(f"{ANITABI_BASE_URL}/bangumi/{subject_id}/lite")
         if response.status_code == 404:
             return None
@@ -103,6 +129,8 @@ class AnitabiClient:
 
     def fetch_points(self, subject_id: int) -> list[dict[str, Any]]:
         """全部巡礼地标（含截图）；网络/解析异常上抛。"""
+        if self._debug:
+            return _debug_points()
         response = self._client.get(
             f"{ANITABI_BASE_URL}/bangumi/{subject_id}/points/detail",
             params={"haveImage": "true"},
