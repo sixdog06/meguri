@@ -15,10 +15,8 @@ from app.adapters.ports import (
     SeichiRepository,
     TransitClient,
 )
-from app.agents.budget import summarize_budget
-from app.agents.navigator import validate_itinerary
 from app.agents.planner import plan_itinerary
-from app.agents.storyteller import narrate_itinerary
+from app.agents.revalidate import finalize_snapshot
 
 
 class Tool(Protocol):
@@ -112,15 +110,15 @@ class PlanItineraryTool:
         snapshot = plan_itinerary(seichi, days, progress=self._progress)
         snapshot.work = work
         snapshot.area = area
-        # Navigator：真实交通段替换估算 + 开放时间与时刻校验（降级不报错）
-        validate_itinerary(
-            snapshot, self._transit, self._hours, progress=self._progress
+        # 收尾管线（revalidate.finalize_snapshot）：Navigator 校验 → 预算 → 讲解
+        finalize_snapshot(
+            snapshot,
+            transit=self._transit,
+            hours=self._hours,
+            corpus=self._corpus,
+            limit_yen=budget_yen,
+            progress=self._progress,
         )
-        # 预算服务（#7）：确定性汇总 + 超支告警，不经过 LLM
-        snapshot.budget = summarize_budget(snapshot, limit_yen=budget_yen)
-        # Storyteller（#8）：检索式讲解 + citation（语料为空则不产出，零幻觉）
-        if self._corpus is not None:
-            narrate_itinerary(snapshot, self._corpus, progress=self._progress)
         self._progress("完成")
 
         self.structured = asdict(snapshot)

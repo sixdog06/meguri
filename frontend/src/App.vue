@@ -10,6 +10,9 @@ const conversationId = ref<string | null>(null)
 const messages = ref<ChatMessage[]>([])
 const seichi = ref<SeichiCandidate[]>([]) // 最近一轮检索出的候选圣地，用于地图标点
 const itinerary = ref<Itinerary | null>(null) // 最近生成的行程快照（按天视图 + 每日路线）
+const candidates = ref<SeichiCandidate[]>([]) // “添加圣地”候选（排除已在行程内的）
+const editing = ref(false) // 编辑请求进行中
+const addSelection = ref<Record<number, string>>({}) // 每天“添加圣地”下拉的选择
 const input = ref('')
 const sending = ref(false)
 const progress = ref<string | null>(null)
@@ -54,6 +57,52 @@ function narrationOf(day: ItineraryDay, seichiId: string | null): Narration | un
   return day.narrations.find((n) => n.seichi_id === seichiId)
 }
 
+/** 编辑（#9）：拉取“添加圣地”候选（排除已在行程内的）。 */
+async function refreshCandidates() {
+  if (!conversationId.value || !itinerary.value) {
+    candidates.value = []
+    return
+  }
+  const res = await fetch(`/api/conversations/${conversationId.value}/itinerary/candidates`)
+  if (res.ok) {
+    candidates.value = ((await res.json()) as { candidates: SeichiCandidate[] }).candidates
+  }
+}
+
+/** 编辑（#9）：应用一次操作，后端自动重跑校验/预算/讲解，返回新快照整页刷新。 */
+async function postEdit(body: Record<string, unknown>) {
+  if (!conversationId.value || editing.value) return
+  editing.value = true
+  error.value = null
+  try {
+    const res = await fetch(`/api/conversations/${conversationId.value}/itinerary/edits`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      // 422 等错误带后端 detail（如"圣地已在行程中"），展示具体原因
+      const body = (await res.json().catch(() => null)) as { detail?: string } | null
+      throw new Error(body?.detail ?? `编辑失败：HTTP ${res.status}`)
+    }
+    itinerary.value = ((await res.json()) as { itinerary: Itinerary }).itinerary
+    await refreshCandidates()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    editing.value = false
+  }
+}
+
+/** 改序：上移/下移一位（按钮式，不做拖拽）。 */
+function moveStop(day: ItineraryDay, i: number, dir: -1 | 1) {
+  const ids = day.seichi.map((s) => s.id as string)
+  const j = i + dir
+  if (j < 0 || j >= ids.length) return
+  ;[ids[i], ids[j]] = [ids[j], ids[i]]
+  postEdit({ type: 'reorder', day: day.day, seichi_ids: ids })
+}
+
 let eventSource: EventSource | null = null
 
 function subscribeEvents(id: string) {
@@ -84,6 +133,7 @@ async function ensureConversation(): Promise<string> {
       const itineraryRes = await fetch(`/api/conversations/${saved}/itinerary`)
       if (itineraryRes.ok) {
         itinerary.value = ((await itineraryRes.json()) as { itinerary: Itinerary | null }).itinerary
+        await refreshCandidates()
       }
       return saved
     }
@@ -128,6 +178,7 @@ async function send() {
     // 总是替换：新一轮检索为空时也要清掉旧标点，与“无结果”的回复一致
     seichi.value = candidates
     itinerary.value = body.itinerary ?? null
+    if (itinerary.value) await refreshCandidates()
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -192,6 +243,19 @@ onBeforeUnmount(() => eventSource?.close())
                 <span v-if="checkOf(day, s.id)?.open === false" class="warn" :title="checkOf(day, s.id)!.note ?? ''">
                   可能闭馆
                 </span>
+                <span class="edit-ops">
+                  <button title="上移" :disabled="editing || i === 0" @click="moveStop(day, i, -1)">↑</button>
+                  <button title="下移" :disabled="editing || i === day.seichi.length - 1" @click="moveStop(day, i, 1)">↓</button>
+                  <select
+                    title="换天"
+                    :value="day.day"
+                    :disabled="editing"
+                    @change="postEdit({ type: 'move_day', seichi_id: s.id, to_day: Number(($event.target as HTMLSelectElement).value) })"
+                  >
+                    <option v-for="d in itinerary!.day_count" :key="d" :value="d">D{{ d }}</option>
+                  </select>
+                  <button title="删除" :disabled="editing" @click="postEdit({ type: 'remove', seichi_id: s.id })">删</button>
+                </span>
                 <p v-if="narrationOf(day, s.id)" class="narration">
                   {{ narrationOf(day, s.id)!.text }}
                   <span v-if="narrationOf(day, s.id)!.citation" class="citation">
@@ -211,6 +275,18 @@ onBeforeUnmount(() => eventSource?.close())
             <span v-if="crossDayLeg(day)!.estimate" class="estimate">估算</span>
             <span v-if="crossDayLeg(day)!.degraded" class="degraded">降级</span>
           </p>
+          <div v-if="candidates.length" class="add-stop">
+            <select v-model="addSelection[day.day]" :disabled="editing">
+              <option value="" disabled>添加圣地…</option>
+              <option v-for="c in candidates" :key="c.id ?? c.name" :value="c.id ?? ''">{{ c.name }}</option>
+            </select>
+            <button
+              :disabled="editing || !addSelection[day.day]"
+              @click="postEdit({ type: 'add', day: day.day, seichi_id: addSelection[day.day] })"
+            >
+              添加
+            </button>
+          </div>
         </div>
       </section>
       <form class="composer" @submit.prevent="send">
@@ -382,6 +458,23 @@ onBeforeUnmount(() => eventSource?.close())
   color: #9ca3af;
   font-size: 0.75rem;
   margin-left: 0.4rem;
+}
+.edit-ops {
+  margin-left: 0.4rem;
+  display: inline-flex;
+  gap: 0.2rem;
+}
+.edit-ops button,
+.edit-ops select {
+  font-size: 0.75rem;
+  padding: 0 0.3rem;
+  color: #6b7280;
+}
+.add-stop {
+  margin-top: 0.3rem;
+  display: flex;
+  gap: 0.4rem;
+  font-size: 0.85rem;
 }
 .error {
   color: #dc2626;

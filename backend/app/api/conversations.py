@@ -4,7 +4,7 @@ import json
 import queue
 import uuid
 from collections.abc import Iterator
-
+from dataclasses import asdict
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -26,8 +26,11 @@ from app.adapters.providers import (
     get_seichi_repository,
     get_transit_client,
 )
+from app.agents.editing import Edit, InvalidEditError, UnknownSeichiError, apply_edit
 from app.agents.events import EventBus, event_bus
 from app.agents.orchestrator import ConversationNotFound, Orchestrator
+from app.agents.planner import snapshot_from_dict
+from app.agents.revalidate import revalidate_snapshot
 from app.agents.tools import PlanItineraryTool, SearchSeichiTool, ToolRegistry
 from app.agents.tracing import InMemoryTracer, Tracer
 from app.db import get_session
@@ -247,14 +250,85 @@ def get_itinerary(
 ) -> ItineraryResponse:
     """读取会话最新一份行程快照（刷新页面后恢复行程视图）；没有则为 null。"""
     _get_conversation_or_404(conversation_id, session)
-    itinerary = (
+    row = (
         session.query(Itinerary)
         .filter_by(conversation_id=conversation_id)
-        .order_by(Itinerary.created_at.desc())
+        .order_by(Itinerary.created_at.desc(), Itinerary.id.desc())  # id 作次序 tiebreak
         .first()
     )
     # 空快照（{}）是规划失败的占位，对外等价于“没有行程”
-    return ItineraryResponse(itinerary=(itinerary.payload or None) if itinerary else None)
+    return ItineraryResponse(itinerary=(row.payload or None) if row else None)
+
+
+class CandidatesResponse(BaseModel):
+    candidates: list[SeichiCandidate]
+
+
+def _latest_itinerary_payload(conversation_id: uuid.UUID, session: Session) -> dict:
+    """最新一份有效（非占位）行程快照 payload；没有则 404。"""
+    _get_conversation_or_404(conversation_id, session)
+    row = (
+        session.query(Itinerary)
+        .filter_by(conversation_id=conversation_id)
+        .order_by(Itinerary.created_at.desc(), Itinerary.id.desc())  # id 作次序 tiebreak
+        .first()
+    )
+    if row is None or not row.payload:
+        raise HTTPException(status_code=404, detail="当前会话没有行程快照")
+    return row.payload
+
+
+@router.get("/{conversation_id}/itinerary/candidates", response_model=CandidatesResponse)
+def get_candidates(
+    conversation_id: uuid.UUID = Depends(valid_conversation_id),
+    session: Session = Depends(get_session),
+    repository: SeichiRepository = Depends(get_seichi_repository),
+) -> CandidatesResponse:
+    """“添加圣地”的候选列表：同作品/地区检索结果中排除已在行程内的。"""
+    payload = _latest_itinerary_payload(conversation_id, session)
+    in_itinerary = {str(s["id"]) for d in payload["days"] for s in d["seichi"]}
+    results = repository.search_seichi(payload.get("work") or "", payload.get("area") or "")
+    return CandidatesResponse(
+        candidates=[asdict(s) for s in results if str(s.id) not in in_itinerary]
+    )
+
+
+@router.post("/{conversation_id}/itinerary/edits", response_model=ItineraryResponse)
+def edit_itinerary(
+    body: Edit,
+    conversation_id: uuid.UUID = Depends(valid_conversation_id),
+    session: Session = Depends(get_session),
+    repository: SeichiRepository = Depends(get_seichi_repository),
+    transit: TransitClient = Depends(get_transit_client),
+    hours: OpeningHoursSource = Depends(get_opening_hours_source),
+    corpus: CorpusStore = Depends(get_corpus_store),
+) -> ItineraryResponse:
+    """应用一次编辑操作 → 自动重校验（revalidate 管线）→ 新快照落库返回。"""
+    payload = _latest_itinerary_payload(conversation_id, session)
+    snapshot = snapshot_from_dict(payload)
+
+    candidates = []
+    if body.type == "add":
+        candidates = repository.search_seichi(snapshot.work or "", snapshot.area or "")
+    try:
+        apply_edit(snapshot, body, candidates)
+    except UnknownSeichiError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from None
+    except InvalidEditError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+
+    revalidate_snapshot(
+        snapshot,
+        transit=transit,
+        hours=hours,
+        corpus=corpus,
+        limit_yen=(payload.get("budget") or {}).get("limit_yen"),
+    )
+
+    new_payload = asdict(snapshot)
+    session.add(Itinerary(conversation_id=conversation_id, payload=new_payload))
+    session.commit()
+    return ItineraryResponse(itinerary=new_payload)
 
 
 @router.get("/{conversation_id}/messages", response_model=list[MessageOut])

@@ -190,3 +190,37 @@ def plan_itinerary(
         current.legs.append(_estimate_leg(current.seichi[-1], nxt.seichi[0], cross_day=True))
 
     return ItinerarySnapshot(day_count=len(day_list), days=day_list)
+
+
+def rebuild_days(days: list[ItineraryDay]) -> list[ItineraryDay]:
+    """编辑后重建（#9）：丢空天、重编号、按当前顺序重建估算交通段
+    （天内相邻 + 跨天连接），供 Navigator 随后替换为真实段。"""
+    days = [d for d in days if d.seichi]
+    for i, day in enumerate(days, start=1):
+        day.day = i
+        day.legs = [_estimate_leg(a, b) for a, b in zip(day.seichi, day.seichi[1:])]
+    for current, nxt in zip(days, days[1:]):
+        current.legs.append(_estimate_leg(current.seichi[-1], nxt.seichi[0], cross_day=True))
+    return days
+
+
+def snapshot_from_dict(payload: dict) -> ItinerarySnapshot:
+    """落库的 asdict 快照 → dataclass 结构（编辑流程的输入）。"""
+    from app.agents.storyteller import Narration  # 运行时导入避免循环
+
+    days = [
+        ItineraryDay(
+            day=d["day"],
+            seichi=[Seichi(**s) for s in d["seichi"]],
+            legs=[TransitLeg(**leg) for leg in d.get("legs", [])],
+            checks=[StopCheck(**c) for c in d.get("checks", [])],
+            narrations=[Narration.from_dict(n) for n in d.get("narrations", [])],
+        )
+        for d in payload["days"]
+    ]
+    return ItinerarySnapshot(
+        day_count=payload["day_count"],
+        days=days,
+        work=payload.get("work"),
+        area=payload.get("area"),
+    )
