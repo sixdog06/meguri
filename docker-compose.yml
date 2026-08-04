@@ -17,9 +17,10 @@ services:
 
   backend:
     build: ./backend
+    env_file: .env.local  # LLM key（MEGURI_OPENAI_*），勿写进本文件
     environment:
       MEGURI_DATABASE_URL: postgresql+psycopg://meguri:meguri@db:5432/meguri
-      MEGURI_ADAPTER_MODE: fake
+      MEGURI_ADAPTER_MODE: live
       # 圣地数据源保持 live（部署环境网络正常）；本机开发被 Cloudflare 封时
       # 用 dev.sh 的 file 模式（离线数据包）
       MEGURI_SEICHI_MODE: live

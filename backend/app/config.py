@@ -25,11 +25,18 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_base_url: str = "https://api.openai.com/v1"
     embedding_model: str = "text-embedding-3-small"
+    # 对话/工具调用/讲解生成的 chat 模型（.env.local 注入，勿入库）
+    openai_model: str = "kimi-for-coding"
     # 向量维度：models 的 Vector 列与 EmbeddingProvider 共用此值。
     # 改维度必须重建语料（DROP TABLE corpus_chunks + 重新灌库）。
     embedding_dim: int = 64
 
-    model_config = {"env_prefix": "MEGURI_"}
+    model_config = {
+        "env_prefix": "MEGURI_",
+        # .env.local（已 gitignore）注入 openai key 等；不存在时静默跳过——
+        # 测试从 backend/  cwd 运行找不到它，且 testsupport 已固定全 fake
+        "env_file": ".env.local",
+    }
 
 
 @lru_cache

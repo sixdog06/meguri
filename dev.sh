@@ -7,6 +7,8 @@ cd "$(dirname "$0")"
 docker compose up -d db
 
 export MEGURI_DATABASE_URL=postgresql+psycopg://meguri:meguri@localhost:5433/meguri
+# 真实 LLM（key 在 .env.local，已 gitignore）：对话理解/工具调用/生成式讲解
+export MEGURI_ADAPTER_MODE=live
 # 圣地数据源：本机 IP 被 Cloudflare 间歇性封在 api.anitabi.cn，默认用离线
 # 数据包（data/seichi/，真实 anitabi 切片）；网络正常处改 MEGURI_SEICHI_MODE=live
 export MEGURI_SEICHI_MODE=file

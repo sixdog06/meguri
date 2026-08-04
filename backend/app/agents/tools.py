@@ -10,6 +10,7 @@ from typing import Any, Protocol
 
 from app.adapters.ports import (
     CorpusStore,
+    LLMGateway,
     OpeningHoursSource,
     Seichi,
     SeichiRepository,
@@ -22,6 +23,9 @@ from app.agents.revalidate import finalize_snapshot
 class Tool(Protocol):
     name: str
     description: str
+    #: system prompt 动态工具清单用的参数说明（可选；Orchestrator 读取，
+    #: 缺省为空串）。如 '{"work": "作品名", "days": 天数整数}'
+    args_hint: str
     #: 结构化输出通道（约定）：工具把最近一次 run 的结构化结果放在这里，
     #: Orchestrator 按工具名收集进消息 payload；无结构化输出的工具保持 None。
     structured: Any
@@ -42,6 +46,8 @@ class SearchSeichiTool:
 
     name = "search_seichi"
     description = "按作品+地区检索候选圣地（名称、坐标、对照截图、出处集数）"
+    # system prompt 动态工具清单用（Orchestrator._system_prompt）
+    args_hint = '{"work": "作品中文全名", "area": "城市/地区名"}'
 
     def __init__(self, repository: SeichiRepository) -> None:
         self._repository = repository
@@ -67,6 +73,8 @@ class PlanItineraryTool:
 
     name = "plan_itinerary"
     description = "按作品+地区+天数生成按天组织的行程快照（地理聚类、顺序优化、交通段估算）"
+    # system prompt 动态工具清单用（Orchestrator._system_prompt）
+    args_hint = '{"work": "作品中文全名", "area": "城市/地区名", "days": 天数整数, "budget_yen": "可选，预算上限日元整数"}'
 
     MAX_DAYS = 7
 
@@ -76,11 +84,13 @@ class PlanItineraryTool:
         transit: TransitClient | None = None,
         hours: OpeningHoursSource | None = None,
         corpus: CorpusStore | None = None,
+        llm: LLMGateway | None = None,
     ) -> None:
         self._repository = repository
         self._transit = transit
         self._hours = hours
         self._corpus = corpus
+        self._llm = llm  # 提供时 Storyteller 走生成式讲解（真实模型）
         self.structured: dict[str, Any] | None = None
         self.progress_sink: Callable[[str], None] | None = None
 
@@ -118,6 +128,7 @@ class PlanItineraryTool:
             corpus=self._corpus,
             limit_yen=budget_yen,
             progress=self._progress,
+            llm=self._llm,
         )
         self._progress("完成")
 

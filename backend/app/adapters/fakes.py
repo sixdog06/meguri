@@ -27,6 +27,8 @@ _BUDGET_PATTERN = re.compile(r"预算\s*约?\s*([0-9][0-9,]*)\s*(?:日元|円|�
 
 
 class FakeLLMGateway:
+    generative_capable = False  # scripted 输出只喂 ReAct 循环（见 LLMGateway 协议）
+
     def __init__(self, scripted: list[str] | None = None) -> None:
         self._scripted = list(scripted or [])
         self.calls: list[list[dict[str, str]]] = []  # 每次 complete 收到的消息，供测试断言

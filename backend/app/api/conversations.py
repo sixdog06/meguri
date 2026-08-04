@@ -20,6 +20,7 @@ from app.adapters.ports import (
     TransitClient,
 )
 from app.adapters.providers import (
+    generative_llm,
     get_corpus_store,
     get_llm_gateway,
     get_opening_hours_source,
@@ -171,16 +172,20 @@ def get_tool_registry(
     transit: TransitClient = Depends(get_transit_client),
     hours: OpeningHoursSource = Depends(get_opening_hours_source),
     corpus: CorpusStore = Depends(get_corpus_store),
+    llm: LLMGateway = Depends(get_llm_gateway),
 ) -> ToolRegistry:
     """生产 wiring：注册 Scout 的 search_seichi 工具（#4）与 Planner 的
     plan_itinerary 工具（#5；#6 Navigator 交通校验、#7 预算、#8 Storyteller）。
 
     每请求构建，外部依赖经 FastAPI 依赖注入——测试在 HTTP 缝
-    override 对应 provider 即换 fake。
+    override 对应 provider 即换 fake。生成式讲解按 LLM 能力标志启用
+    （generative_capable，见 providers.generative_llm）。
     """
     registry = ToolRegistry()
     registry.register(SearchSeichiTool(repository))
-    registry.register(PlanItineraryTool(repository, transit, hours, corpus))
+    registry.register(
+        PlanItineraryTool(repository, transit, hours, corpus, generative_llm(llm))
+    )
     return registry
 
 
@@ -302,6 +307,7 @@ def edit_itinerary(
     transit: TransitClient = Depends(get_transit_client),
     hours: OpeningHoursSource = Depends(get_opening_hours_source),
     corpus: CorpusStore = Depends(get_corpus_store),
+    llm: LLMGateway = Depends(get_llm_gateway),
 ) -> ItineraryResponse:
     """应用一次编辑操作 → 自动重校验（revalidate 管线）→ 新快照落库返回。"""
     payload = _latest_itinerary_payload(conversation_id, session)
@@ -323,6 +329,7 @@ def edit_itinerary(
         hours=hours,
         corpus=corpus,
         limit_yen=(payload.get("budget") or {}).get("limit_yen"),
+        llm=generative_llm(llm),
     )
 
     new_payload = asdict(snapshot)

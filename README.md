@@ -12,6 +12,16 @@
 
 ## 本地开发
 
+LLM 配置（真实模型）：把 key 写进仓库根的 `.env.local`（已 gitignore，勿提交）：
+
+```bash
+MEGURI_OPENAI_API_KEY=...
+MEGURI_OPENAI_BASE_URL=https://api.kimi.com/coding/v1
+MEGURI_OPENAI_MODEL=kimi-for-coding
+```
+
+`adapter_mode`：`live` 经 LangChain 适配层调真实模型（对话理解/工具调用/生成式讲解），缺 key 会明确报错；`fake` 用 FakeLLMGateway（测试专用，离线）。`dev.sh` 默认 live。
+
 后端（Python 3.11+）：
 
 ```bash

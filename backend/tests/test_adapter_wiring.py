@@ -37,9 +37,19 @@ def test_live_transit_mode_wires_otp_client(monkeypatch):
     assert isinstance(providers.get_opening_hours_source(), overpass.OverpassOpeningHours)
 
 
-def test_live_adapter_mode_raises_until_live_llm_exists(monkeypatch):
-    monkeypatch.setenv("MEGURI_ADAPTER_MODE", "live")
-    providers.get_settings.cache_clear()
+def test_live_adapter_mode_无key时报错_有key时接LangChain(monkeypatch):
+    from app.adapters import llm
 
-    with pytest.raises(NotImplementedError):
+    monkeypatch.setenv("MEGURI_ADAPTER_MODE", "live")
+    monkeypatch.delenv("MEGURI_OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr("app.config.Settings.openai_api_key", None, raising=False)
+    providers.get_settings.cache_clear()
+    with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
         providers.get_llm_gateway()
+
+    monkeypatch.setenv("MEGURI_OPENAI_API_KEY", "test-key")
+    providers.get_settings.cache_clear()
+    try:
+        assert isinstance(providers.get_llm_gateway(), llm.LangChainLLMGateway)
+    finally:
+        providers.get_settings.cache_clear()

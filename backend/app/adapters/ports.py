@@ -42,6 +42,10 @@ class WorkRef:
 
 
 class LLMGateway(Protocol):
+    #: 能力标志：是否可用于生成式讲解（真实模型 True；fake 为 False——
+    #: fake 的 scripted 输出要留给 ReAct 循环，不能喂生成调用）。wiring 统一读取。
+    generative_capable: bool
+
     def complete(self, messages: list[dict[str, str]]) -> str: ...
 
 

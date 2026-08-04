@@ -23,7 +23,7 @@ _Avoid_: 剧照、截图（裸用时歧义）
 ## Agents
 
 **Orchestrator**:
-主对话 Agent。持有对话状态，澄清需求（作品、目的地、天数、预算），分发任务并整合最终回答。
+主对话 Agent。持有对话状态，澄清需求（作品、目的地、天数、预算），分发任务并整合最终回答。模型调用经 LangChain 适配层（ADR-0002）——当前单模型 kimi-for-coding 兼任各层（对话理解/工具调用/讲解生成），分层混用（不同层用不同模型）待多模型配置。
 
 **Scout**:
 检索 Agent。通过 anitabi API 与 RAG 回答"某作品在某区域有哪些圣地"，产出候选圣地集。
@@ -37,7 +37,7 @@ _实现形态（#6 起）_：非对话 Agent——与预算服务同例的确定
 
 **Storyteller**:
 讲解角色。为每个圣地产出作品背景、出处集数与名场面讲解，必须引用经统一检索接口（CorpusStore）检索到的语料（citation），检索不到则不产出（零幻觉）。
-_实现形态（#8 起）_：无真 LLM 时为检索式拼装模块（top-1 语料原文片段 + citation 模板化），被编排（PlanItineraryTool）调用；接真 LLM 后改为基于检索语料的生成式讲解，citation 契约不变。
+_实现形态_：检索式拼装模块（top-1 语料原文片段 + citation），被编排（PlanItineraryTool）调用；adapter_mode=live 时升级为生成式（检索 chunks 作上下文由 LLM 写 ≤100 字讲解，citation 仍取检索 top-1 确定性结果）。
 
 **预算服务 (Budget Service)**:
 非 Agent 的确定性模块。汇总交通费与门票，做加总与超支告警。刻意不用 LLM，保证零幻觉。

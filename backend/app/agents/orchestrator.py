@@ -1,18 +1,20 @@
 """Orchestrator：自研的最小 ReAct Agent Loop（ADR-0002，不引入 Agent 框架）。
 
-循环：收用户消息 → 落库 → 逐轮把对话历史交给 LLMGateway：
+循环：收用户消息 → 落库 → 逐轮把对话历史（含 system prompt）交给 LLMGateway：
   - LLM 返回最终回复 → 落库、结束
   - LLM 返回工具调用 → 执行工具，把观察结果（observation）追加进消息，继续下一轮
 由 max_iterations 兜底，防止死循环。
 
-LLM 网关的 wire format（约定，见 _parse_llm_output）：
+LLM 网关的 wire format（约定，见 _parse_llm_output / _system_prompt）：
 网关返回 JSON 字符串，二选一：
   {"type": "final", "content": "..."}
   {"type": "tool_call", "name": "<tool name>", "args": {...}}
-非 JSON 输出按最终回复原文处理（兼容简单 fake / 纯文本模型）。
+真实模型可能带 markdown fence/前后散文，解析做提取兜底；最终非 JSON 按
+final 原文处理（兼容简单 fake / 纯文本模型）。
 """
 
 import json
+import re
 import uuid
 from dataclasses import asdict, is_dataclass
 from typing import Any
@@ -30,15 +32,50 @@ class ConversationNotFound(Exception):
     pass
 
 
+def _extract_json(raw: str) -> str:
+    """从真实模型输出里提取 JSON：去 markdown fence、取第一个 { 到最后一个 }。"""
+    text = raw.strip()
+    fence = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
+    if fence:
+        text = fence.group(1).strip()
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end > start:
+        return text[start : end + 1]
+    return text
+
+
 def _parse_llm_output(raw: str) -> dict[str, Any]:
     """解析网关输出为 {"type": "final" | "tool_call", ...}；非 JSON 视为 final 原文。"""
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        return {"type": "final", "content": raw}
-    if isinstance(data, dict) and data.get("type") in ("final", "tool_call"):
-        return data
+    for candidate in (raw, _extract_json(raw)):
+        try:
+            data = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict) and data.get("type") in ("final", "tool_call"):
+            return data
     return {"type": "final", "content": raw}
+
+
+def _system_prompt(tools: ToolRegistry) -> str:
+    """角色 + 动态工具清单 + 输出线格式（工具清单从 ToolRegistry 生成，不硬编码）。"""
+    tool_docs = []
+    for tool in tools.list():
+        args_hint = getattr(tool, "args_hint", "")
+        tool_docs.append(f"- {tool.name}：{tool.description}。参数：{args_hint}")
+    tools_text = "\n".join(tool_docs) if tool_docs else "（无可用工具）"
+    return (
+        "你是 Meguri，一个动画圣地巡礼行程规划助手。用户用中文描述想巡礼的作品、"
+        "目的地和出行条件，你帮他检索圣地并规划行程。\n\n"
+        "你可以调用以下工具：\n"
+        f"{tools_text}\n\n"
+        "规则：\n"
+        "1. 需要检索或规划时，只输出一行 JSON 工具调用，不要输出任何其他文字：\n"
+        '   {"type": "tool_call", "name": "<工具名>", "args": {<参数>}}\n'
+        "2. 工具结果会以 [工具观察结果] 形式给你。拿到结果后，只输出一行 JSON 最终回复：\n"
+        '   {"type": "final", "content": "<给用户的自然语言回复>"}\n'
+        "3. 不需要工具时（澄清、闲聊、信息不足），也按第 2 条的 final 格式回答。\n"
+        "4. 天数、预算等参数从用户话里推断；作品名用中文全名。"
+    )
 
 
 class Orchestrator:
@@ -69,8 +106,11 @@ class Orchestrator:
         session.commit()
 
         messages = [
-            {"role": message.role, "content": message.content}
-            for message in conversation.messages
+            {"role": "system", "content": _system_prompt(self._tools)},
+            *(
+                {"role": message.role, "content": message.content}
+                for message in conversation.messages
+            ),
         ]
 
         # 注入进度回调（约定通道，见 Tool 协议）：支持进度上报的工具经此

@@ -2,8 +2,8 @@
 
 - HashEmbeddingProvider：确定性哈希向量（token 桶哈希 + L2 归一化）。
   无真实 embedding key 时的开发/测试 fake——共享 token 的文本余弦相近，
-  足够驱动 pgvector 检索全链路；接真实 key 后换 OpenAI 兼容 provider
-  （当前为 stub，随 LangChain 接入落地，见 ADR-0002）。
+  足够驱动 pgvector 检索全链路。真实 embedding（OpenAI 兼容）随 LangChain
+  适配层接入落地（ADR-0002），落地前一律用哈希向量。
 """
 
 import hashlib
@@ -65,19 +65,3 @@ class HashEmbeddingProvider:
             vector[bucket] += 1.0
         norm = math.sqrt(sum(v * v for v in vector)) or 1.0
         return [v / norm for v in vector]
-
-
-class OpenAIEmbeddingProvider:
-    """OpenAI 兼容 embedding API —— stub（ADR-0002：embedding 应经 LangChain
-    适配层接入，仓库尚未引入 langchain 依赖）。配置位已留（config.openai_*），
-    调用即 NotImplementedError，随 LangChain 接入落地。"""
-
-    def __init__(self, base_url: str, api_key: str, model: str, *, timeout: float = 15.0) -> None:
-        self._base_url = base_url
-        self._model = model
-
-    def embed(self, texts: list[str]) -> list[list[float]]:
-        raise NotImplementedError(
-            "OpenAI 兼容 embedding 随 LangChain 适配层接入落地（ADR-0002）；"
-            "当前请用确定性哈希向量（不配 openai_api_key 即自动使用）"
-        )
