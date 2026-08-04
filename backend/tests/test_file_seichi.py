@@ -91,6 +91,21 @@ def test_缺数据目录优雅降级为空(tmp_path):
     assert repo.search_seichi("京吹", "宇治") == []
 
 
+def test_find_work_多个包含匹配取最短名(tmp_path):
+    """查"你的名字"应命中《你的名字。》而非名字更长的《死神剧场版 …呼唤着你的名字》。"""
+    works = tmp_path / "works.json"
+    works.write_text(json.dumps([
+        {"id": 2875, "name": "死神剧场版 消逝于黑暗中 呼唤着你的名字", "name_cn": ""},
+        {"id": 32281, "name": "君の名は。", "name_cn": "你的名字。"},
+    ]))
+    repo = FileSeichiRepository(data_dir=str(tmp_path), works_file=str(works))
+
+    ref = repo.find_work("你的名字")
+
+    assert ref is not None
+    assert ref.subject_id == 32281
+
+
 def test_search_seichi_返回真实数据切片():
     repo = FileSeichiRepository(DATA_DIR)
 

@@ -87,13 +87,26 @@ class FileSeichiRepository:
                 name=str(data.get("work") or work) if data else work,
                 city=str(data.get("city") or "") if data else "",
             )
+        best: dict | None = None
+        best_len = 0
         for item in self._load_works_index():
-            if work in (item.get("name_cn") or "") or work in (item.get("name") or ""):
-                return WorkRef(
-                    subject_id=item["id"],
-                    name=item.get("name_cn") or item.get("name") or work,
-                    city="",
-                )
+            # 命中该作品的全部名字（name_cn / name）
+            hits = [n for n in (item.get("name_cn") or "", item.get("name") or "") if work in n]
+            if not hits:
+                continue
+            shortest = min(len(n) for n in hits)
+            # 多个作品名字都包含查询词时取名字最短的（"你的名字" 应命中
+            # 《你的名字。》而非《…呼唤着你的名字》）；完全相等即最优，提前结束
+            if best is None or shortest < best_len:
+                best, best_len = item, shortest
+                if shortest == len(work):
+                    break
+        if best is not None:
+            return WorkRef(
+                subject_id=best["id"],
+                name=best.get("name_cn") or best.get("name") or work,
+                city="",
+            )
         return None
 
     def search_seichi(self, work: str, area: str) -> list[Seichi]:
