@@ -47,6 +47,20 @@ MEGURI_CORPUS_MODE=live .venv/bin/python -m app.rag.ingest --work 吹响吧！�
 
 注意 anitabi 部分需要能访问 api.anitabi.cn 的网络；灌库走脚本而非运行时每请求现灌。语料事实：bgm.tv 的 summary 是真实作品简介文本；anitabi 的地标数据**没有自由文本/评论字段**，anitabi 语料是"元数据文本化"（名称+出处集数拼句），不是地标描述原文。检索有相似度阈值（`DEFAULT_MIN_SCORE`，哈希向量下的保守估计）：相关度不达标的语料不会成为讲解 citation。
 
+## 评测（#10，不进 CI 门禁）
+
+自研评测 harness 在 `eval/`（pytest 驱动，但与 `backend/tests` 行为测试分离——`backend/pytest.ini` 的 testpaths 不含 eval，需显式运行）：
+
+```bash
+.venv/bin/python -m pytest eval/ -v -s   # 需要 5433 的 Postgres（compose db）
+```
+
+- **golden 数据集** `eval/datasets/*.jsonl`，按 Agent 组织（scout/planner/navigator/storyteller/e2e），内容用真实已抓取数据构造（anitabi 京吹宇治地标、bgm.tv 条目）。扩数据集 = 追加 JSONL 行（字段见 `eval/harness.py` 的读取处）。
+- **指标**：Scout 检索命中率（期望 id 子集的命中比例，数据集每例带 `rationale` 说明期望的独立依据）；Planner 规则（天数正确/每天非空/全覆盖/最近邻不劣于固定种子随机基线）；Navigator 时间可行性（checks 完整/到达时刻单调/闭馆被标记）；Storyteller **引用保真 citation_fidelity**（讲解文本确实是其 citation chunk 的摘录、且该 chunk 是该圣地的实际检索结果——对检索式拼装实现近乎恒真；真正的生成式事实性判断是真 LLM judge 的事，已 deferred）；e2e 检查清单（回复/行程/legs/checks/预算/讲解/trace 覆盖，RuleJudge 布尔评分）。
+- **JudgeProvider**（`eval/judge.py`）：judge(rubric, output) → score+reason；离线用确定性 `RuleJudge`（规则式打分），**真 LLM judge（OpenAIJudge）当前是 stub**，配置位 `MEGURI_OPENAI_*`。
+- **tracing 消费**：orchestrator 埋点 `loop_step/llm_call/tool_call/pipeline_stage`；`JsonlTracer`（`app/agents/tracing.py`）把 trace 导出 JSONL——e2e 评测里真实消费（落临时文件回放后校验事件序列），也可 dependency override `get_tracer` 接入。
+- 数据集事实：storyteller 案例的手写描述句 chunk 是人工夹具（anitabi 无地标自由文本，真实语料为"元数据文本化"，见各 jsonl 的 `_note`/`rationale` 字段）。
+
 前端（Node 22+）：
 
 ```bash

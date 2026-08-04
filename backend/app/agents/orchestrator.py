@@ -74,12 +74,20 @@ class Orchestrator:
         ]
 
         # 注入进度回调（约定通道，见 Tool 协议）：支持进度上报的工具经此
-        # 把各阶段进度发布到 SSE
+        # 把各阶段进度发布到 SSE，同时写 trace（pipeline_stage，评测消费）
         for tool in self._tools.list():
             if hasattr(tool, "progress_sink"):
-                tool.progress_sink = lambda stage: self._bus.publish(
-                    conversation_key, "planning", {"stage": stage}
-                )
+
+                def make_sink(tool_name: str):
+                    def sink(stage: str) -> None:
+                        self._bus.publish(conversation_key, "planning", {"stage": stage})
+                        self._tracer.record(
+                            "pipeline_stage", {"tool": tool_name, "stage": stage}
+                        )
+
+                    return sink
+
+                tool.progress_sink = make_sink(tool.name)
 
         reply_text = ""
         # 工具经 structured 约定通道（见 Tool 协议）产出的结构化结果，
