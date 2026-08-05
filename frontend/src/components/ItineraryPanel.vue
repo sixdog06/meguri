@@ -118,6 +118,12 @@ function moveStop(day: ItineraryDay, i: number, dir: -1 | 1) {
           </button>
         </div>
       </div>
+
+      <!-- 编辑等待遮罩：重校验需数秒（live 交通/开放时间），明确提示而非"卡死" -->
+      <div v-if="editing" class="edit-wait">
+        <span class="spinner" />
+        <span>稍等，正在重新校验行程…</span>
+      </div>
     </template>
 
     <div v-else class="placeholder">
@@ -129,6 +135,7 @@ function moveStop(day: ItineraryDay, i: number, dir: -1 | 1) {
 
 <style scoped>
 .panel {
+  position: relative; /* 编辑等待遮罩的定位锚点 */
   background: rgb(250 249 245 / 0.96);
   backdrop-filter: blur(8px);
   border: 1px solid var(--line);
@@ -138,6 +145,33 @@ function moveStop(day: ItineraryDay, i: number, dir: -1 | 1) {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+}
+.edit-wait {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  background: rgb(250 249 245 / 0.78);
+  backdrop-filter: blur(2px);
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  letter-spacing: 0.03em;
+}
+.spinner {
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid var(--line);
+  border-top-color: var(--ink-soft);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .panel-head {
   display: flex;
