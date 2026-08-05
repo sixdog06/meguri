@@ -141,3 +141,32 @@ class OTPTransitClient:
             result["note"] = "公共交通数据未覆盖，按步行路网计算"
         _ROUTE_CACHE[key] = result
         return dict(result)
+
+    def duration_matrix(
+        self,
+        points: list[tuple[float, float]],
+        *,
+        depart_at: datetime | None = None,
+    ) -> list[list[int | None]] | None:
+        """耗时矩阵（分钟，有向）：逐对 route 查询（进程内缓存——随后 Navigator
+        逐段解析命中缓存，不重复请求）。
+
+        失败/estimate 的条目为 None（调用方回退距离估算）；全部失败返回 None
+        （调用方保持原顺序）。供 Navigator 的天内顺序优化用。
+        """
+        n = len(points)
+        matrix: list[list[int | None]] = [[None] * n for _ in range(n)]
+        got_real = False
+        for i in range(n):
+            for j in range(n):
+                if i == j:
+                    continue
+                try:
+                    result = self.route(points[i], points[j], depart_at=depart_at)
+                except Exception:  # 单对失败不拖累全矩阵：留 None 由调用方回退
+                    continue
+                if result.get("estimate"):
+                    continue
+                matrix[i][j] = int(result["duration_minutes"])
+                got_real = True
+        return matrix if got_real else None

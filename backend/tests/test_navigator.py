@@ -348,3 +348,96 @@ def test_Navigator传播降级标记与提示():
     for leg in degraded:
         assert leg["estimate"] is False  # 真实步行耗时，但明确标记降级
         assert "覆盖" in leg["note"]
+
+
+# --- 天内顺序优化（耗时矩阵 + 2-opt） ---
+
+# 南北直线等距的四个点：几何最近邻必然 L1→L2→L3→L4
+L1 = _s("l1", "北点", 35.040, 135.000)
+L2 = _s("l2", "中北点", 35.030, 135.000)
+L3 = _s("l3", "中南点", 35.020, 135.000)
+L4 = _s("l4", "南点", 35.010, 135.000)
+LINE_FIXTURE = [L1, L2, L3, L4]
+
+LINE_PLAN_SCRIPT = [
+    json.dumps(
+        {"type": "tool_call", "name": "plan_itinerary",
+         "args": {"work": WORK, "area": AREA, "days": 1}}
+    ),
+    json.dumps({"type": "final", "content": "一天行程已生成"}),
+]
+
+# 耗时矩阵（分钟，按 L1..L4 序）：便宜边为 L1-L3、L2-L3、L2-L4，
+# 最优路径 L1→L3→L2→L4（反向等价），与几何顺序 L1→L2→L3→L4 不同
+LINE_MATRIX = [
+    [0, 100, 1, 100],
+    [100, 0, 1, 1],
+    [1, 1, 0, 100],
+    [100, 1, 100, 0],
+]
+
+
+class MatrixTransit(FakeTransitClient):
+    """带耗时矩阵的 fake：duration_matrix 返回真实耗时（分钟）；
+    route 保持默认 estimate（本组测试不关心逐段解析）。"""
+
+    def __init__(self, matrix: list[list[int]]) -> None:
+        super().__init__()
+        self._matrix = matrix
+        self.matrix_calls: list[list[tuple]] = []
+
+    def duration_matrix(self, points, *, depart_at=None):
+        self.matrix_calls.append(points)
+        return self._matrix
+
+
+def make_line_client(transit) -> TestClient:
+    app.dependency_overrides[get_llm_gateway] = lambda: FakeLLMGateway(scripted=list(LINE_PLAN_SCRIPT))
+    app.dependency_overrides[get_seichi_repository] = lambda: FakeSeichiRepository(seichi=LINE_FIXTURE)
+    app.dependency_overrides[get_transit_client] = lambda: transit
+    app.dependency_overrides[get_opening_hours_source] = lambda: FakeOpeningHours()
+    return TestClient(app)
+
+
+def test_天内顺序按耗时矩阵优化():
+    transit = MatrixTransit(LINE_MATRIX)
+    client = make_line_client(transit)
+
+    itinerary = plan(client)
+
+    assert itinerary["day_count"] == 1
+    order = [s["id"] for s in itinerary["days"][0]["seichi"]]
+    assert order in (["l1", "l3", "l2", "l4"], ["l4", "l2", "l3", "l1"])  # 矩阵最优，非几何序
+    assert len(transit.matrix_calls) == 1  # 一天只查一次矩阵
+    # 交通段按新顺序重建
+    legs = itinerary["days"][0]["legs"]
+    assert [(leg["from_id"], leg["to_id"]) for leg in legs] == list(zip(order, order[1:]))
+
+
+def test_无矩阵方法时保持几何顺序():
+    """TransitClient 没有 duration_matrix（fake/旧实现）→ 跳过优化，几何顺序不变。"""
+    client = make_line_client(FakeTransitClient())
+
+    itinerary = plan(client)
+
+    order = [s["id"] for s in itinerary["days"][0]["seichi"]]
+    assert order == ["l1", "l2", "l3", "l4"]  # 自北向南的几何最近邻
+
+
+def test_编辑后的手动顺序不被矩阵重排():
+    """重校验流程不做顺序优化：用户编辑后的站点顺序优先。"""
+    transit = MatrixTransit(LINE_MATRIX)
+    client = make_line_client(transit)
+    cid = client.post("/api/conversations").json()["conversation_id"]
+    response = client.post(f"/api/conversations/{cid}/messages", json={"text": "宇治一天"})
+    assert response.status_code == 200
+
+    res = client.post(
+        f"/api/conversations/{cid}/itinerary/edits",
+        json={"type": "reorder", "day": 1, "seichi_ids": ["l1", "l2", "l3", "l4"]},
+    )
+
+    assert res.status_code == 200
+    order = [s["id"] for s in res.json()["itinerary"]["days"][0]["seichi"]]
+    assert order == ["l1", "l2", "l3", "l4"]  # 用户指定的顺序，未被重排
+    assert len(transit.matrix_calls) == 1  # 只有初始规划查过矩阵

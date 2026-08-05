@@ -136,7 +136,43 @@ def _order_nearest_neighbor(cluster: list[Seichi]) -> list[Seichi]:
     return ordered
 
 
-def _estimate_leg(a: Seichi, b: Seichi, *, cross_day: bool = False) -> TransitLeg:
+def order_path(stops: list[Seichi], cost: Callable[[Seichi, Seichi], float]) -> list[Seichi]:
+    """路径排序：多起点最近邻取最优 + 2-opt 改进（站内点数少，近似最优）。
+
+    cost(a, b) 是 a→b 的代价（分钟/公里均可，只需可比）；用于把"直线距离最近邻"
+    升级为"真实耗时最短路径"（Navigator 的耗时矩阵场景）。
+    """
+    if len(stops) <= 2:
+        return list(stops)
+
+    def path_cost(order: list[Seichi]) -> float:
+        return sum(cost(a, b) for a, b in zip(order, order[1:]))
+
+    # 多起点最近邻：每个点都试作起点，保留总代价最小的路径
+    def nn_from(start: Seichi) -> list[Seichi]:
+        remaining = [s for s in stops if s is not start]
+        ordered = [start]
+        while remaining:
+            nxt = min(remaining, key=lambda s: cost(ordered[-1], s))
+            ordered.append(nxt)
+            remaining.remove(nxt)
+        return ordered
+
+    best = min((nn_from(s) for s in stops), key=path_cost)
+    # 2-opt：反转任一中间段能降代价就反转，直到不动点
+    improved = True
+    while improved:
+        improved = False
+        for i in range(len(best) - 1):
+            for j in range(i + 1, len(best)):
+                candidate = best[:i] + best[i : j + 1][::-1] + best[j + 1 :]
+                if path_cost(candidate) < path_cost(best) - 1e-9:
+                    best = candidate
+                    improved = True
+    return best
+
+
+def estimate_leg(a: Seichi, b: Seichi, *, cross_day: bool = False) -> TransitLeg:
     distance = _distance(a, b)
     mode = "walk" if distance <= WALK_MAX_KM else "drive"
     speed = WALK_KMH if mode == "walk" else DRIVE_KMH
@@ -180,12 +216,12 @@ def plan_itinerary(
             ItineraryDay(
                 day=i,
                 seichi=ordered,
-                legs=[_estimate_leg(a, b) for a, b in zip(ordered, ordered[1:])],
+                legs=[estimate_leg(a, b) for a, b in zip(ordered, ordered[1:])],
             )
         )
     # 跨天连接段：每天末尾 → 次日开头，挂在出发天的 legs 末尾
     for current, nxt in zip(day_list, day_list[1:]):
-        current.legs.append(_estimate_leg(current.seichi[-1], nxt.seichi[0], cross_day=True))
+        current.legs.append(estimate_leg(current.seichi[-1], nxt.seichi[0], cross_day=True))
 
     return ItinerarySnapshot(day_count=len(day_list), days=day_list)
 
@@ -196,9 +232,9 @@ def rebuild_days(days: list[ItineraryDay]) -> list[ItineraryDay]:
     days = [d for d in days if d.seichi]
     for i, day in enumerate(days, start=1):
         day.day = i
-        day.legs = [_estimate_leg(a, b) for a, b in zip(day.seichi, day.seichi[1:])]
+        day.legs = [estimate_leg(a, b) for a, b in zip(day.seichi, day.seichi[1:])]
     for current, nxt in zip(days, days[1:]):
-        current.legs.append(_estimate_leg(current.seichi[-1], nxt.seichi[0], cross_day=True))
+        current.legs.append(estimate_leg(current.seichi[-1], nxt.seichi[0], cross_day=True))
     return days
 
 

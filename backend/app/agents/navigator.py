@@ -5,25 +5,34 @@
    estimate=False 的真实结果替换 Planner 的距离估算（leg schema 不动，只换数据源）；
    查询失败/区域未覆盖 → 保留估算段 + degraded=True + note（明确降级提示，
    不报错不沉默）；fake 的 estimate=True 结果 = 没有真实数据，静默保留估算。
-2. 时刻推算：每天 09:00 出发、每站停留 VISIT_MINUTES，推算各站计划到达时间。
-3. 开放时间校验：经 OpeningHoursSource（OSM opening_hours）判断到达时刻
+2. 天内顺序优化（optimize_day_orders，仅初始规划流程调用）：有真实交通
+   数据源时按耗时矩阵（duration_matrix，可选端口方法）重排天内站点，
+   替代直线距离最近邻——编辑流程不调用，用户手动顺序优先。
+3. 时刻推算：每天 09:00 出发、每站停留 VISIT_MINUTES，推算各站计划到达时间。
+4. 开放时间校验：经 OpeningHoursSource（OSM opening_hours）判断到达时刻
    是否开放，闭馆 → StopCheck(open=False, note)；未知 → open=None 不误标。
 """
 
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
-from app.adapters.ports import OpeningHoursSource, TransitClient
+from app.adapters.ports import OpeningHoursSource, Seichi, TransitClient
 from app.agents.opening_hours import is_open
 from app.agents.planner import (
     ItinerarySnapshot,
     Progress,
     StopCheck,
     TransitLeg,
+    estimate_leg,
+    order_path,
+    rebuild_days,
 )
 
 DAY_START = time(9, 0)
 VISIT_MINUTES = 45
+# 耗时矩阵查询的固定出发时刻：只要"白天有车、大概多久"的代表性耗时，
+# 不对齐具体班次（时刻表级优化超出本站需求）。
+MATRIX_DEPART = time(10, 0)
 
 
 def _leg_endpoint(
@@ -83,6 +92,49 @@ def validate_itinerary(
         cross = [leg for leg in day.legs if leg.cross_day]
         if cross:
             _resolve_leg(cross[0], seichi_by_id, transit, clock + timedelta(minutes=VISIT_MINUTES))
+    return snapshot
+
+
+def optimize_day_orders(
+    snapshot: ItinerarySnapshot,
+    transit: TransitClient | None,
+    *,
+    day_date: date | None = None,
+    progress: Progress | None = None,
+) -> ItinerarySnapshot:
+    """天内顺序优化（仅初始规划流程调用；编辑流程保留用户手动顺序，不调用本函数）。
+
+    经 TransitClient.duration_matrix（可选端口方法，无此方法的 fake → 整体跳过，
+    与 OpeningHoursSource.prefetch 同一约定）拿真实公交+步行耗时矩阵，替代直线
+    距离做多起点最近邻 + 2-opt 重排；矩阵缺项回退距离估算，整天矩阵 None
+    （全部查询失败）保持原顺序。重排后重建交通段（估算段，由
+    validate_itinerary 随后替换为真实段）。
+    """
+    if transit is None:
+        return snapshot
+    matrix_fn = getattr(transit, "duration_matrix", None)
+    if matrix_fn is None:
+        return snapshot
+    emit = progress or (lambda stage: None)
+    at = datetime.combine(day_date or date.today(), MATRIX_DEPART)
+    for day in snapshot.days:
+        if len(day.seichi) <= 2:
+            continue
+        stops = day.seichi
+        matrix = matrix_fn([(s.lat, s.lng) for s in stops], depart_at=at)
+        if matrix is None:
+            continue
+        emit("优化中")
+        index = {id(s): i for i, s in enumerate(stops)}
+
+        def cost(a: Seichi, b: Seichi) -> float:
+            m = matrix[index[id(a)]][index[id(b)]]
+            # 矩阵缺项（查询失败/无真实数据）回退直线距离估算
+            return m if m is not None else estimate_leg(a, b).duration_minutes
+
+        day.seichi = order_path(stops, cost)
+    # 重排可能改变了天末/天首站点，跨天衔接段一并重建
+    snapshot.days = rebuild_days(snapshot.days)
     return snapshot
 
 

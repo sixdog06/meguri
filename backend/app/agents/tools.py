@@ -18,6 +18,7 @@ from app.adapters.ports import (
     TransitClient,
 )
 from app.agents.planner import plan_itinerary
+from app.agents.navigator import optimize_day_orders
 from app.agents.revalidate import finalize_snapshot
 
 
@@ -145,6 +146,10 @@ class PlanItineraryTool:
         snapshot = plan_itinerary(seichi, days, progress=self._progress)
         snapshot.work = work
         snapshot.area = area
+        # 天内顺序优化（可选）：有真实交通数据源时按耗时矩阵重排，替代几何最近邻；
+        # 只在初始规划做——编辑流程保留用户手动顺序（见 revalidate_snapshot）
+        if self._transit is not None:
+            optimize_day_orders(snapshot, self._transit, progress=self._progress)
         # 收尾管线（revalidate.finalize_snapshot）：Navigator 校验 → 讲解
         finalize_snapshot(
             snapshot,
