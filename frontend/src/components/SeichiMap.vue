@@ -7,8 +7,17 @@ import markerIconUrl from 'leaflet/dist/images/marker-icon.png'
 import markerShadowUrl from 'leaflet/dist/images/marker-shadow.png'
 import type { Itinerary, SeichiCandidate } from '../types'
 import { dayColor } from '../types'
+import { pointUrl } from '../gmaps'
 
-const props = defineProps<{ seichi: SeichiCandidate[]; itinerary?: Itinerary | null }>()
+/** 行程面板点名的定位目标：seq 递增保证同一点重复点击也能触发。 */
+export interface MapFocus {
+  id: string
+  lat: number
+  lng: number
+  seq: number
+}
+
+const props = defineProps<{ seichi: SeichiCandidate[]; itinerary?: Itinerary | null; focus?: MapFocus | null }>()
 
 // vite 下 Leaflet 默认 marker 图标路径会丢，显式绑定打包后的资源
 L.Marker.prototype.options.icon = L.icon({
@@ -24,6 +33,12 @@ L.Marker.prototype.options.icon = L.icon({
 const mapEl = ref<HTMLDivElement | null>(null)
 let map: L.Map | null = null
 let markers: L.LayerGroup | null = null
+// 标点按圣地 id（无 id 用名称）索引，供面板点名后定位并打开弹窗
+const markerByKey = new Map<string, L.Marker>()
+
+function markerKey(s: SeichiCandidate): string {
+  return String(s.id ?? s.name)
+}
 
 function escapeHtml(text: string): string {
   const div = document.createElement('div')
@@ -55,19 +70,22 @@ function popupHtml(s: SeichiCandidate): string {
         : `<div>截图来源：${origin}</div>`,
     )
   }
+  // Google 地图外链（纯 URL 协议，新标签页打开）
+  parts.push(`<div><a href="${pointUrl(s.lat, s.lng)}" target="_blank" rel="noopener">在 Google 地图打开 →</a></div>`)
   return parts.join('')
 }
 
 function renderMarkers() {
   if (!map || !markers) return
   markers.clearLayers()
+  markerByKey.clear()
   const points: L.LatLngExpression[] = []
   if (props.itinerary) {
     // 行程视图：每天一条路线连线（按天区分颜色）+ 圣地标点
     for (const day of props.itinerary.days) {
       const dayPoints = day.seichi.map((s): L.LatLngExpression => [s.lat, s.lng])
       for (const s of day.seichi) {
-        L.marker([s.lat, s.lng]).bindPopup(popupHtml(s)).addTo(markers)
+        markerByKey.set(markerKey(s), L.marker([s.lat, s.lng]).bindPopup(popupHtml(s)).addTo(markers))
       }
       if (dayPoints.length > 1) {
         L.polyline(dayPoints, { color: dayColor(day.day), weight: 4, opacity: 0.8 }).addTo(markers)
@@ -76,7 +94,7 @@ function renderMarkers() {
     }
   } else {
     for (const s of props.seichi) {
-      L.marker([s.lat, s.lng]).bindPopup(popupHtml(s)).addTo(markers)
+      markerByKey.set(markerKey(s), L.marker([s.lat, s.lng]).bindPopup(popupHtml(s)).addTo(markers))
       points.push([s.lat, s.lng])
     }
   }
@@ -99,6 +117,16 @@ onMounted(() => {
 })
 
 watch(() => [props.seichi, props.itinerary], renderMarkers)
+
+// 面板点名 → 飞到对应标点并打开弹窗（标点可能因行程重建尚未渲染，拿不到就只飞过去）
+watch(
+  () => props.focus,
+  (focus) => {
+    if (!map || !focus) return
+    map.flyTo([focus.lat, focus.lng], Math.max(map.getZoom(), 15), { duration: 0.6 })
+    markerByKey.get(focus.id)?.openPopup()
+  },
+)
 
 onBeforeUnmount(() => {
   map?.remove()

@@ -68,8 +68,9 @@ export interface Itinerary {
   days: ItineraryDay[]
 }
 
-/** 每日路线颜色（地图 polyline 与按天视图的色点共用）。低饱和传统色，呼应整体日式极简基调。 */
-export const DAY_COLORS = ['#b5432f', '#4a6b82', '#6f8560', '#b98a3e', '#7d6b8f', '#4f8280', '#a85d72']
+/** 每日路线颜色（地图 polyline 与按天视图的色点共用）。低饱和传统色，呼应整体基调；
+ *  首日与强调色同族（茜），其余为传统色中的灰调蓝绿紫。 */
+export const DAY_COLORS = ['#b7282e', '#426579', '#769164', '#bf783a', '#867ba9', '#5c9291', '#a25768']
 
 export function dayColor(day: number): string {
   return DAY_COLORS[(day - 1) % DAY_COLORS.length]
@@ -80,4 +81,11 @@ export interface ChatMessage {
   role: string
   content: string
   payload: MessagePayload | null
+}
+
+/** 本地历史里一条会话的元数据（存在浏览器 localStorage；内容仍从后端按 id 拉取）。 */
+export interface ConversationMeta {
+  id: string
+  title: string // 首条 user 消息截断；兜底“新主题”
+  updatedAt: number // 毫秒时间戳，列表按它倒序
 }

@@ -1,19 +1,22 @@
-/* 设计令牌：日式极简（宣纸 / 墨 / 朱）—— 全站共用 */
+/* 设计令牌：日式传统色（生成り纸 / 墨系文字 / 茜）—— 全站共用 */
 :root {
-  --paper: #faf9f5; /* 宣纸 */
-  --paper-deep: #f1eee5; /* 稍深的纸色（气泡、卡片底） */
-  --ink: #2a2926; /* 墨 */
-  --ink-soft: #6b675c;
-  --ink-faint: #9b9587;
-  --line: #e6e1d5; /* 发丝边框 */
-  --accent: #b5432f; /* 朱 */
-  --accent-soft-bg: #f7e8e3;
-  --amber-bg: #f3ead3;
-  --amber-ink: #8a6d3b;
+  --paper: #fbfaf5; /* 生成り色（未漂白的自然纸色） */
+  --paper-deep: #f1efe7; /* 稍深的纸色（气泡、卡片底） */
+  --card: #fffef9; /* 卡片/输入框底（近白的纸面） */
+  --ink: #1f1f19; /* 濃墨：主文字，中性不带黄 */
+  --ink-soft: #595857; /* 墨：次级文字 */
+  --ink-faint: #a3a3a2; /* 薄墨色：三级文字 */
+  --line: #e9e4d4; /* 灰白色：发丝边框 */
+  --line-strong: #d3cec0; /* 悬停加深的边框 */
+  --accent: #b7282e; /* 茜色：主操作/强调 */
+  --accent-deep: #93202a; /* 茜的悬停加深 */
+  --accent-soft-bg: #f9e9e8;
+  --amber-bg: #fbf3dc; /* 鸟の子色系：估算标记 */
+  --amber-ink: #8a6d33;
   --shadow:
-    0 1px 2px rgb(42 41 38 / 0.05),
-    0 8px 24px rgb(42 41 38 / 0.08);
-  --font-serif: 'Noto Serif SC', 'Songti SC', serif;
+    0 1px 2px rgb(31 31 25 / 0.05),
+    0 8px 24px rgb(31 31 25 / 0.08);
+  --font-serif: 'Hiragino Mincho ProN', 'Hiragino Mincho Pro', 'Yu Mincho', 'Noto Serif SC', 'Songti SC', serif; /* 字标/标题：macOS 原生明朝最雅，其余平台回退 */
   --font-sans: 'Noto Sans SC', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
 }
 
@@ -26,4 +29,35 @@ body {
 
 #app {
   height: 100vh;
+}
+
+/* Leaflet 控件：融入纸墨基调（默认灰白太跳） */
+.leaflet-bar {
+  border: 1px solid var(--line) !important;
+  border-radius: 8px !important;
+  box-shadow: var(--shadow) !important;
+  overflow: hidden;
+}
+.leaflet-bar a {
+  background: rgb(251 250 245 / 0.94) !important;
+  color: var(--ink-soft) !important;
+  border-bottom: 1px solid var(--line) !important;
+  width: 28px !important;
+  height: 28px !important;
+  line-height: 28px !important;
+}
+.leaflet-bar a:last-child {
+  border-bottom: none !important;
+}
+.leaflet-bar a:hover {
+  background: var(--paper-deep) !important;
+  color: var(--ink) !important;
+}
+.leaflet-control-attribution {
+  background: rgb(251 250 245 / 0.65) !important;
+  color: var(--ink-faint) !important;
+  font-size: 10px !important;
+}
+.leaflet-control-attribution a {
+  color: var(--ink-faint) !important;
 }

@@ -35,3 +35,16 @@ export function checkOf(day: ItineraryDay, seichiId: string | null): StopCheck |
 export function narrationOf(day: ItineraryDay, seichiId: string | null): Narration | undefined {
   return day.narrations.find((n) => n.seichi_id === seichiId)
 }
+
+/** 当天交通时长合计（分钟）：只含天内段；跨天衔接段单算，不归入任何一天。 */
+export function dayTransitMinutes(day: ItineraryDay): number {
+  return day.legs.filter((l) => !l.cross_day).reduce((sum, l) => sum + l.duration_minutes, 0)
+}
+
+/** 时长的人性化中文格式（"约 2 小时 10 分" / "约 45 分钟"）。 */
+export function formatMinutes(min: number): string {
+  if (min < 60) return `约 ${min} 分钟`
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  return m ? `约 ${h} 小时 ${m} 分` : `约 ${h} 小时`
+}

@@ -2,8 +2,10 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import ChatDock from './components/ChatDock.vue'
 import ItineraryPanel from './components/ItineraryPanel.vue'
-import SeichiMap from './components/SeichiMap.vue'
-import type { ChatMessage, Itinerary, SeichiCandidate } from './types'
+import SeichiMap, { type MapFocus } from './components/SeichiMap.vue'
+import type { ChatMessage, ConversationMeta, Itinerary, SeichiCandidate } from './types'
+import { deriveTitle, loadHistory, removeConversation, touchConversation } from './conversations'
+import logoUrl from './assets/logo.png'
 
 const STORAGE_KEY = 'meguri_conversation_id'
 
@@ -18,6 +20,13 @@ const progress = ref<string | null>(null)
 const streamingReply = ref('') // 正在逐字流入的 assistant 回复（SSE reply_chunk），上屏即清
 const error = ref<string | null>(null)
 const notice = ref<string | null>(null) // 显式业务提示（如"该作品没有圣地巡礼数据"，区别于故障与加载中）
+const history = ref<ConversationMeta[]>([]) // 本地历史（localStorage）：开新主题后可切回旧会话
+const mapFocus = ref<MapFocus | null>(null) // 行程面板点名的定位目标（seq 递增触发地图联动）
+
+/** 面板点名站点标题 → 地图飞到对应标点并打开弹窗。 */
+function focusStop(s: SeichiCandidate) {
+  mapFocus.value = { id: String(s.id ?? s.name), lat: s.lat, lng: s.lng, seq: Date.now() }
+}
 
 // 对话窗：可拖动（标题栏）/可缩放（右下角原生手柄）的浮窗；行程面板贴其右缘，可折叠成竖条
 const dockEl = ref<HTMLElement | null>(null)
@@ -73,24 +82,26 @@ async function refreshCandidates() {
   }
 }
 
-/** 编辑（#9）：应用一次操作，后端自动重跑校验/讲解，返回新快照整页刷新。 */
-async function postEdit(body: Record<string, unknown>) {
-  if (!conversationId.value || editing.value) return
+/** 编辑（#9）：顺序应用一批编辑操作，每条后端自动重跑校验/讲解并返回新快照，最后整页刷新。 */
+async function submitEdits(ops: Record<string, unknown>[]) {
+  if (!conversationId.value || editing.value || ops.length === 0) return
   editing.value = true
   error.value = null
   progress.value = '正在重新校验行程…' // live 模式下重跑交通/开放时间校验，可能数十秒——给出明确的进行中反馈，不是卡死
   try {
-    const res = await fetch(`/api/conversations/${conversationId.value}/itinerary/edits`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    if (!res.ok) {
-      // 422 等错误带后端 detail（如"圣地已在行程中"），展示具体原因
-      const resBody = (await res.json().catch(() => null)) as { detail?: string } | null
-      throw new Error(resBody?.detail ?? `编辑失败：HTTP ${res.status}`)
+    for (const body of ops) {
+      const res = await fetch(`/api/conversations/${conversationId.value}/itinerary/edits`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        // 422 等错误带后端 detail（如"圣地已在行程中"），展示具体原因
+        const resBody = (await res.json().catch(() => null)) as { detail?: string } | null
+        throw new Error(resBody?.detail ?? `编辑失败：HTTP ${res.status}`)
+      }
+      itinerary.value = ((await res.json()) as { itinerary: Itinerary }).itinerary
     }
-    itinerary.value = ((await res.json()) as { itinerary: Itinerary }).itinerary
     await refreshCandidates()
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
@@ -122,29 +133,82 @@ function subscribeEvents(id: string) {
   }
 }
 
-async function ensureConversation(): Promise<string> {
-  const saved = localStorage.getItem(STORAGE_KEY)
-  if (saved) {
-    const res = await fetch(`/api/conversations/${saved}/messages`)
-    if (res.ok) {
-      // 会话仍在：载入历史（刷新页面不丢消息），并恢复最近一轮的地图标点与行程快照
-      messages.value = (await res.json()) as ChatMessage[]
-      const withSeichi = [...messages.value].reverse().find((m) => m.payload?.search_seichi?.length)
-      seichi.value = withSeichi?.payload?.search_seichi ?? []
-      const itineraryRes = await fetch(`/api/conversations/${saved}/itinerary`)
-      if (itineraryRes.ok) {
-        itinerary.value = ((await itineraryRes.json()) as { itinerary: Itinerary | null }).itinerary
-        await refreshCandidates()
-      }
-      return saved
-    }
-    localStorage.removeItem(STORAGE_KEY)
+/** 载入指定会话：历史消息 + 最近一轮地图标点 + 行程快照，并订阅其进度事件。
+ *  后端已没有这条会话时返回 false，由调用方从本地历史剔除。 */
+async function loadConversation(id: string): Promise<boolean> {
+  const res = await fetch(`/api/conversations/${id}/messages`)
+  if (!res.ok) return false
+  // 会话仍在：载入历史（刷新页面不丢消息），并恢复最近一轮的地图标点与行程快照
+  messages.value = (await res.json()) as ChatMessage[]
+  const withSeichi = [...messages.value].reverse().find((m) => m.payload?.search_seichi?.length)
+  seichi.value = withSeichi?.payload?.search_seichi ?? []
+  itinerary.value = null
+  candidates.value = []
+  const itineraryRes = await fetch(`/api/conversations/${id}/itinerary`)
+  if (itineraryRes.ok) {
+    itinerary.value = ((await itineraryRes.json()) as { itinerary: Itinerary | null }).itinerary
+    await refreshCandidates()
   }
+  conversationId.value = id
+  localStorage.setItem(STORAGE_KEY, id)
+  subscribeEvents(id)
+  return true
+}
+
+/** 清空界面状态（开新主题/切换会话共用）：旧主题的视图一点不留。 */
+function resetView() {
+  messages.value = []
+  seichi.value = []
+  itinerary.value = null
+  candidates.value = []
+  streamingReply.value = ''
+  progress.value = null
+  error.value = null
+  notice.value = null
+  itinCollapsed.value = false
+}
+
+/** 开新主题：后端建新会话，旧会话留在本地历史里可切回。 */
+async function newTopic() {
+  if (sending.value || editing.value) return // 请求在飞时不开新主题，避免响应落错会话
   const res = await fetch('/api/conversations', { method: 'POST' })
   if (!res.ok) throw new Error(`创建会话失败：HTTP ${res.status}`)
   const body = (await res.json()) as { conversation_id: string }
+  resetView()
+  conversationId.value = body.conversation_id
   localStorage.setItem(STORAGE_KEY, body.conversation_id)
-  return body.conversation_id
+  history.value = touchConversation(body.conversation_id)
+  subscribeEvents(body.conversation_id)
+}
+
+/** 切到历史里的旧主题。 */
+async function switchTopic(id: string) {
+  if (id === conversationId.value || sending.value || editing.value) return
+  resetView()
+  try {
+    if (!(await loadConversation(id))) {
+      // 后端已没有这条会话：本地剔除，回到新主题
+      history.value = removeConversation(id)
+      await newTopic()
+    }
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+/** 删除一条历史（只删本地记录）；删的是当前会话时切到最近一条，空了就开新主题。 */
+async function deleteTopic(id: string) {
+  if (sending.value || editing.value) return
+  history.value = removeConversation(id)
+  if (id !== conversationId.value) return
+  try {
+    const next = history.value[0]
+    if (next && (await loadConversation(next.id))) return
+    if (next) history.value = removeConversation(next.id) // 也已失效，一并剔除
+    await newTopic()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  }
 }
 
 async function send(text: string) {
@@ -153,7 +217,9 @@ async function send(text: string) {
   error.value = null
   notice.value = null
   streamingReply.value = '' // 新一轮：清掉上一轮的流式残影
+  const isFirstUser = !messages.value.some((m) => m.role === 'user') // 首条 user 消息将用作历史标题
   messages.value.push({ id: Date.now(), role: 'user', content: text, payload: null })
+  history.value = touchConversation(conversationId.value, isFirstUser ? deriveTitle(messages.value) : undefined)
   try {
     const res = await fetch(`/api/conversations/${conversationId.value}/messages`, {
       method: 'POST',
@@ -215,9 +281,22 @@ onMounted(async () => {
     resizeObserver.observe(dockEl.value)
   }
   window.addEventListener('resize', clampDock)
+  history.value = loadHistory()
   try {
-    conversationId.value = await ensureConversation()
-    subscribeEvents(conversationId.value)
+    const saved = localStorage.getItem(STORAGE_KEY)
+    if (saved && (await loadConversation(saved))) {
+      // 迁移：老用户只有当前 id、没有历史列表——用首条 user 消息补建条目
+      if (!history.value.some((c) => c.id === saved)) {
+        history.value = touchConversation(saved, deriveTitle(messages.value))
+      }
+    } else {
+      if (saved) {
+        // 保存的会话在后端已失效：连同本地记录一起清掉
+        localStorage.removeItem(STORAGE_KEY)
+        history.value = removeConversation(saved)
+      }
+      await newTopic()
+    }
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   }
@@ -232,13 +311,13 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="app">
-    <SeichiMap class="bg-map" :seichi="seichi" :itinerary="itinerary" />
+    <SeichiMap class="bg-map" :seichi="seichi" :itinerary="itinerary" :focus="mapFocus" />
 
     <header class="title-card">
-      <span class="seal" />
-      <div>
-        <h1>Meguri 圣地巡礼</h1>
-        <p v-if="itinerary?.work">{{ itinerary.work }}<template v-if="itinerary.area"> · {{ itinerary.area }}</template></p>
+      <img class="logo" :src="logoUrl" alt="巡る" />
+      <div class="brand">
+        <h1>巡る</h1>
+        <p>Meguri · 圣地巡礼</p>
       </div>
     </header>
 
@@ -246,7 +325,20 @@ onBeforeUnmount(() => {
     <p v-if="notice" class="toast-notice">提示：{{ notice }}</p>
 
     <div ref="dockEl" class="dock-win" :style="{ left: dockX + 'px', top: dockY + 'px' }">
-      <ChatDock :messages="messages" :progress="progress" :sending="sending" :streaming="streamingReply" @send="send" @dragstart="onDockDragStart" />
+      <ChatDock
+        :messages="messages"
+        :progress="progress"
+        :sending="sending"
+        :streaming="streamingReply"
+        :history="history"
+        :current-id="conversationId"
+        :busy="sending || editing"
+        @send="send"
+        @dragstart="onDockDragStart"
+        @newtopic="newTopic"
+        @switch="switchTopic"
+        @remove="deleteTopic"
+      />
     </div>
 
     <template v-if="itinerary">
@@ -264,8 +356,9 @@ onBeforeUnmount(() => {
           :itinerary="itinerary"
           :candidates="candidates"
           :editing="editing"
-          @edit="postEdit"
+          @submit="submitEdits"
           @collapse="itinCollapsed = true"
+          @focus="focusStop"
         />
       </div>
     </template>
@@ -292,32 +385,35 @@ onBeforeUnmount(() => {
   right: 1.25rem;
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  background: rgb(250 249 245 / 0.94);
+  gap: 0.65rem;
+  background: rgb(251 250 245 / 0.94);
   backdrop-filter: blur(8px);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 0.55rem 0.95rem;
+  border-radius: 14px;
+  padding: 0.55rem 1.1rem 0.55rem 0.6rem;
   box-shadow: var(--shadow);
   z-index: 500;
 }
-.seal {
-  width: 0.85rem;
-  height: 0.85rem;
-  background: var(--accent);
-  border-radius: 2px;
+.logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
   flex-shrink: 0;
+  box-shadow: 0 0 0 1px var(--line); /* 细圈让圆形 logo 在纸底上有边界 */
 }
-.title-card h1 {
+.brand h1 {
   font-family: var(--font-serif);
-  font-size: 0.98rem;
+  font-size: 1.2rem;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.18em;
+  line-height: 1.1;
   margin: 0;
 }
-.title-card p {
-  margin: 0.15rem 0 0;
-  font-size: 0.78rem;
+.brand p {
+  margin: 0.2rem 0 0;
+  font-size: 0.66rem;
+  letter-spacing: 0.22em;
   color: var(--ink-faint);
 }
 .toast-error,
@@ -374,7 +470,7 @@ onBeforeUnmount(() => {
   position: absolute;
   z-index: 500;
   writing-mode: vertical-rl;
-  background: rgb(250 249 245 / 0.96);
+  background: rgb(251 250 245 / 0.96);
   backdrop-filter: blur(8px);
   border: 1px solid var(--line);
   border-radius: 8px;
