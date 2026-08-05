@@ -9,7 +9,7 @@ Orchestrator/API 层映射为 503，不炸 500。
 """
 
 import time
-from typing import Any
+from typing import Any, Callable
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -43,22 +43,47 @@ class LangChainLLMGateway:
             timeout=timeout,
         )
 
-    def complete(self, messages: list[dict[str, str]]) -> str:
-        """调 chat 模型返回文本；连接类错误重试后抛 LLMUnavailableError。"""
+    def complete(
+        self,
+        messages: list[dict[str, str]],
+        on_chunk: Callable[[str], None] | None = None,
+    ) -> str:
+        """调 chat 模型返回文本；on_chunk 非空时走 .stream() 逐段回调（真流式）。
+
+        连接类错误重试后抛 LLMUnavailableError；流已开始（已有 chunk 上屏）
+        后出错不重试（避免重复推送），直接抛。
+        """
         converted = [self._convert(m) for m in messages]
         last_error: Exception | None = None
         for attempt in range(self.MAX_RETRIES + 1):
+            streamed_any = False
             try:
-                response = self._chat.invoke(converted)
-                content: Any = response.content
-                if isinstance(content, list):  # 多段内容拼文本
-                    return "".join(str(part.get("text", "")) for part in content)
-                return str(content)
+                if on_chunk is None:
+                    response = self._chat.invoke(converted)
+                    return self._content_text(response.content)
+                parts: list[str] = []
+                for chunk in self._chat.stream(converted):
+                    text = self._content_text(chunk.content)
+                    if not text:
+                        continue
+                    streamed_any = True
+                    parts.append(text)
+                    on_chunk(text)
+                return "".join(parts)
             except (APIConnectionError, APITimeoutError) as exc:
+                if streamed_any:  # 已有增量上屏，重试会重复推送——直接失败
+                    raise LLMUnavailableError(str(exc)) from exc
                 last_error = exc
                 if attempt < self.MAX_RETRIES:
                     time.sleep(self.RETRY_BASE_SECONDS * (2**attempt))
         raise LLMUnavailableError(str(last_error)) from last_error
+
+    @staticmethod
+    def _content_text(content: Any) -> str:
+        """LangChain content（str 或多段 list）拼成纯文本。"""
+        if isinstance(content, list):  # 多段内容拼文本
+            return "".join(str(part.get("text", "")) for part in content)
+        return str(content)
 
     @staticmethod
     def _convert(message: dict[str, str]) -> BaseMessage:

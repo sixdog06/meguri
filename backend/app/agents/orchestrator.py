@@ -6,11 +6,11 @@
 由 max_iterations 兜底，防止死循环。
 
 LLM 网关的 wire format（约定，见 _parse_llm_output / _system_prompt）：
-网关返回 JSON 字符串，二选一：
-  {"type": "final", "content": "..."}
-  {"type": "tool_call", "name": "<tool name>", "args": {...}}
-真实模型可能带 markdown fence/前后散文，解析做提取兜底；最终非 JSON 按
-final 原文处理（兼容简单 fake / 纯文本模型）。
+- 工具调用：一行 JSON `{"type": "tool_call", "name": "<tool>", "args": {...}}`
+- 最终回复：**纯文本/Markdown 正文**（不包 JSON）——这样网关流式回调的
+  增量文本可以逐字推 SSE 上屏（JSON 包装没法边收边显示）。
+兼容兜底：模型仍按旧格式输出 `{"type": "final", "content": ...}`（含未闭合/
+截断的残次 JSON）时提取 content；其余非 JSON 一律按 final 原文。
 """
 
 import json
@@ -45,6 +45,27 @@ def _extract_json(raw: str) -> str:
     return text
 
 
+def _extract_truncated_final(raw: str) -> str | None:
+    """从未闭合/截断的 final JSON 里抢救 content（真实模型偶发，曾导致
+    原始 JSON 整串上屏）；不像 final JSON 时返回 None。"""
+    text = raw.strip()
+    match = re.search(
+        r'\{\s*"type"\s*:\s*"final"\s*,\s*"content"\s*:\s*"(.*)', text, re.DOTALL
+    )
+    if not match:
+        return None
+    inner = match.group(1).rstrip()
+    # 去掉可能的收尾残片（闭合引号/花括号）
+    if inner.endswith('"}'):
+        inner = inner[:-2]
+    elif inner.endswith('"'):
+        inner = inner[:-1]
+    try:  # 含 \n \" 等合法转义：借 JSON 解码（真实换行先转义防炸）
+        return json.loads('"' + inner.replace("\n", "\\n") + '"')
+    except json.JSONDecodeError:  # 转义本身也残了：手工解最常见的几种
+        return inner.replace("\\n", "\n").replace('\\"', '"').replace("\\\\", "\\")
+
+
 def _parse_llm_output(raw: str) -> dict[str, Any]:
     """解析网关输出为 {"type": "final" | "tool_call", ...}；非 JSON 视为 final 原文。"""
     for candidate in (raw, _extract_json(raw)):
@@ -54,6 +75,9 @@ def _parse_llm_output(raw: str) -> dict[str, Any]:
             continue
         if isinstance(data, dict) and data.get("type") in ("final", "tool_call"):
             return data
+    truncated = _extract_truncated_final(raw)
+    if truncated is not None:
+        return {"type": "final", "content": truncated}
     return {"type": "final", "content": raw}
 
 
@@ -72,9 +96,9 @@ def _system_prompt(tools: ToolRegistry) -> str:
         "规则：\n"
         "1. 需要检索或规划时，只输出一行 JSON 工具调用，不要输出任何其他文字：\n"
         '   {"type": "tool_call", "name": "<工具名>", "args": {<参数>}}\n'
-        "2. 工具结果会以 [工具观察结果] 形式给你。拿到结果后，只输出一行 JSON 最终回复：\n"
-        '   {"type": "final", "content": "<给用户的自然语言回复>"}\n'
-        "3. 不需要工具时（澄清、闲聊、信息不足），也按第 2 条的 final 格式回答。\n"
+        "2. 工具结果会以 [工具观察结果] 形式给你。拿到结果后，直接输出给用户的\n"
+        "   最终回复正文（Markdown 可用），**不要包 JSON、不要代码围栏**。\n"
+        "3. 不需要工具时（澄清、闲聊、信息不足），同样直接输出回复正文。\n"
         "4. 天数、预算等参数从用户话里推断；作品名用中文全名。"
     )
 
@@ -151,8 +175,29 @@ class Orchestrator:
             self._bus.publish(conversation_key, "thinking", {"step": step})
 
             self._tracer.record("llm_call", {"step": step})
+            # 真流式：网边生成边推 SSE（reply_chunk）。但工具调用是 JSON——
+            # 不能边收边上屏，所以按首个非空白字符分类：'{'/'`' 开头视为
+            # JSON（缓冲不上屏），其余（纯文本 final）逐段推送。
+            stream_mode: dict[str, Any] = {"decided": None, "pending": []}
+
+            def on_chunk(chunk: str) -> None:
+                if stream_mode["decided"] == "buffer":
+                    return
+                if stream_mode["decided"] == "stream":
+                    self._bus.publish(conversation_key, "reply_chunk", {"text": chunk})
+                    return
+                stream_mode["pending"].append(chunk)
+                joined = "".join(stream_mode["pending"]).lstrip()
+                if not joined:
+                    return
+                if joined[0] in "{`":
+                    stream_mode["decided"] = "buffer"
+                    return
+                stream_mode["decided"] = "stream"
+                self._bus.publish(conversation_key, "reply_chunk", {"text": joined})
+
             try:
-                raw = self._llm.complete(messages)
+                raw = self._llm.complete(messages, on_chunk=on_chunk)
             except LLMUnavailableError:
                 # 模型服务不可达：如实推送 error 事件后上抛（API 映射 503）；
                 # 不写半完成的 ReAct 状态（assistant 消息不落库）

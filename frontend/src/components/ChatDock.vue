@@ -6,6 +6,7 @@ const props = defineProps<{
   messages: ChatMessage[]
   progress: string | null // 规划各阶段进度（检索中/聚类中/排序中…），null = 空闲
   sending: boolean
+  streaming: string // 正在逐字流入的 assistant 回复（真流式），空串 = 无
 }>()
 
 const emit = defineEmits<{ send: [text: string]; dragstart: [e: PointerEvent] }>()
@@ -24,6 +25,14 @@ watch(
     listEl.value?.scrollTo({ top: listEl.value.scrollHeight })
   },
   { immediate: true },
+)
+// 流式文本每进一段都跟滚到底部
+watch(
+  () => props.streaming,
+  async () => {
+    await nextTick()
+    listEl.value?.scrollTo({ top: listEl.value.scrollHeight })
+  },
 )
 
 function submit() {
@@ -58,7 +67,10 @@ function onBarPointerDown(e: PointerEvent) {
       <li v-for="m in messages" :key="m.id" :class="m.role">
         <span class="bubble">{{ m.content }}</span>
       </li>
-      <li v-if="progress" class="assistant">
+      <li v-if="streaming" class="assistant">
+        <span class="bubble streaming">{{ streaming }}<span class="cursor">▍</span></span>
+      </li>
+      <li v-else-if="progress" class="assistant">
         <span class="bubble muted">{{ progress }}</span>
       </li>
     </ul>
@@ -146,6 +158,15 @@ function onBarPointerDown(e: PointerEvent) {
   color: var(--ink-faint);
   font-style: italic;
   padding-left: 0;
+}
+.bubble.streaming .cursor {
+  color: var(--ink-faint);
+  animation: blink 1s steps(1) infinite;
+}
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
 }
 .composer {
   display: flex;

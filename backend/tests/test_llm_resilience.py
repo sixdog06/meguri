@@ -86,7 +86,7 @@ class FailingLLMGateway:
     def __init__(self):
         self.calls = 0
 
-    def complete(self, messages):
+    def complete(self, messages, on_chunk=None):
         self.calls += 1
         raise LLMUnavailableError("connection error")
 

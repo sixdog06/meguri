@@ -23,6 +23,15 @@ def test_解析纯文本兜底为final():
     assert _parse_llm_output("今天天气不错") == {"type": "final", "content": "今天天气不错"}
 
 
+def test_解析未闭合的final_JSON提取content():
+    """真实模型偶发未闭合/截断的 final JSON（曾整串上屏）：抢救 content。"""
+    raw = '{"type": "final", "content": "已帮你检索到《轻音少女》。\\n\\n## 第1天：修学院'
+    assert _parse_llm_output(raw) == {
+        "type": "final",
+        "content": "已帮你检索到《轻音少女》。\n\n## 第1天：修学院",
+    }
+
+
 def test_system_prompt含动态工具清单():
     registry = ToolRegistry()
     registry.register(SearchSeichiTool(repository=None))
@@ -33,7 +42,7 @@ def test_system_prompt含动态工具清单():
     assert "search_seichi" in prompt
     assert "plan_itinerary" in prompt
     assert "budget_yen" in prompt  # args_hint 进 prompt
-    assert "tool_call" in prompt and "final" in prompt  # 线格式说明
+    assert "tool_call" in prompt and "最终回复" in prompt  # 线格式说明（final 为纯文本正文）
 
 
 def test_循环首条消息是system_prompt():

@@ -5,7 +5,7 @@
 
 import json
 import re
-from typing import Any
+from typing import Any, Callable
 
 from app.adapters.ports import Seichi
 
@@ -37,8 +37,16 @@ class FakeLLMGateway:
         self._scripted = list(scripted or [])
         self.calls: list[list[dict[str, str]]] = []  # 每次 complete 收到的消息，供测试断言
 
-    def complete(self, messages: list[dict[str, str]]) -> str:
-        """LLMGateway 契约：返回 wire format JSON 或纯文本（由编排层解析）。"""
+    def complete(
+        self,
+        messages: list[dict[str, str]],
+        on_chunk: Callable[[str], None] | None = None,
+    ) -> str:
+        """LLMGateway 契约：返回 wire format JSON 或纯文本（由编排层解析）。
+
+        fake 不做逐字流（一次性返回），on_chunk 仅满足签名——流式行为由
+        LangChainLLMGateway 与 Orchestrator 的单测覆盖。
+        """
         self.calls.append(messages)
         if self._scripted:
             return self._scripted.pop(0)

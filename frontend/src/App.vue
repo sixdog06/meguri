@@ -15,6 +15,7 @@ const candidates = ref<SeichiCandidate[]>([]) // “添加圣地”候选（排�
 const editing = ref(false) // 编辑请求进行中
 const sending = ref(false)
 const progress = ref<string | null>(null)
+const streamingReply = ref('') // 正在逐字流入的 assistant 回复（SSE reply_chunk），上屏即清
 const error = ref<string | null>(null)
 const notice = ref<string | null>(null) // 显式业务提示（如"该作品没有圣地巡礼数据"，区别于故障与加载中）
 
@@ -103,9 +104,13 @@ function subscribeEvents(id: string) {
   eventSource?.close()
   eventSource = new EventSource(`/api/conversations/${id}/events`)
   eventSource.onmessage = (e) => {
-    const item = JSON.parse(e.data as string) as { event: string; data?: { stage?: string } }
+    const item = JSON.parse(e.data as string) as { event: string; data?: { stage?: string; text?: string } }
     if (item.event === 'done') {
       progress.value = null
+    } else if (item.event === 'reply_chunk') {
+      // 真流式：模型逐字输出，即时上屏（进度提示同时让位）
+      progress.value = null
+      streamingReply.value += item.data?.text ?? ''
     } else if (item.event === 'planning') {
       // 规划各阶段进度（检索中/聚类中/排序中/完成）
       progress.value = item.data?.stage ?? '规划中…'
@@ -145,6 +150,7 @@ async function send(text: string) {
   sending.value = true
   error.value = null
   notice.value = null
+  streamingReply.value = '' // 新一轮：清掉上一轮的流式残影
   messages.value.push({ id: Date.now(), role: 'user', content: text, payload: null })
   try {
     const res = await fetch(`/api/conversations/${conversationId.value}/messages`, {
@@ -174,12 +180,14 @@ async function send(text: string) {
       content: body.reply,
       payload: Object.keys(payload).length ? payload : null,
     })
+    streamingReply.value = '' // 正式消息入列，流式气泡让位（避免重复显示）
     // 总是替换：新一轮检索为空时也要清掉旧标点，与“无结果”的回复一致
     seichi.value = found
     itinerary.value = body.itinerary ?? null
     if (itinerary.value) await refreshCandidates()
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
+    streamingReply.value = '' // 出错不留半截流式文本
   } finally {
     sending.value = false
     progress.value = null
@@ -236,7 +244,7 @@ onBeforeUnmount(() => {
     <p v-if="notice" class="toast-notice">提示：{{ notice }}</p>
 
     <div ref="dockEl" class="dock-win" :style="{ left: dockX + 'px', top: dockY + 'px' }">
-      <ChatDock :messages="messages" :progress="progress" :sending="sending" @send="send" @dragstart="onDockDragStart" />
+      <ChatDock :messages="messages" :progress="progress" :sending="sending" :streaming="streamingReply" @send="send" @dragstart="onDockDragStart" />
     </div>
 
     <template v-if="itinerary">

@@ -7,7 +7,7 @@ fakes (app.adapters.fakes); live implementations arrive with later tickets.
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 
 @dataclass
@@ -46,7 +46,17 @@ class LLMGateway(Protocol):
     #: fake 的 scripted 输出要留给 ReAct 循环，不能喂生成调用）。wiring 统一读取。
     generative_capable: bool
 
-    def complete(self, messages: list[dict[str, str]]) -> str: ...
+    def complete(
+        self,
+        messages: list[dict[str, str]],
+        on_chunk: Callable[[str], None] | None = None,
+    ) -> str:
+        """返回完整文本；on_chunk 非空时边生成边回调增量文本（真流式）。
+
+        实现方注意：on_chunk 只在该回调路径上保证逐字推送；调用方负责判断
+        输出形态（Orchestrator 对 JSON 工具调用会缓冲不上屏）。
+        """
+        ...
 
 
 class SeichiRepository(Protocol):

@@ -55,6 +55,27 @@ def make_client() -> AnitabiClient:
     return AnitabiClient(client=httpx.Client(transport=httpx.MockTransport(handler)))
 
 
+def test_距主城市过远的污染点被过滤():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/lite"):
+            return httpx.Response(200, json={
+                "id": 1424, "cn": "轻音少女", "city": "京都市",
+                "geo": [35.0116, 135.7681],
+            })
+        return httpx.Response(200, json=[
+            {"id": "near", "name": "修学院駅", "geo": [35.0505, 135.7904]},
+            {"id": "daytrip", "name": "由良川橋", "geo": [35.5108, 135.288]},  # ~65km 日归，保留
+            {"id": "berlin", "name": "ブランデンブルク門", "geo": [52.5162, 13.3781]},  # 污染点
+        ])
+
+    client = AnitabiClient(client=httpx.Client(transport=httpx.MockTransport(handler)))
+
+    result = client.fetch_seichi(1424)
+
+    assert result is not None
+    assert {s.name for s in result.seichi} == {"修学院駅", "由良川橋"}
+
+
 def test_真实响应结构映射为候选圣地():
     result = make_client().fetch_seichi(115908)
 

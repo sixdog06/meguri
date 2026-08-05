@@ -100,6 +100,7 @@ def test_debug客户端_不触网返回罐头数据(mapping, monkeypatch):
     assert len(results) > 40  # 罐头 K-ON! 切片全量返回（按 max_results 截断前）
     assert all(s.area == "京都市" for s in results)
     assert results[0].work == "京吹"  # lite cn 置空 → 回退为查询串（与 live 同语义）
+    assert "ブランデンブルク門" not in {s.name for s in results}  # 柏林污染点被距离过滤
 
 
 def test_debug客户端_地区不匹配仍过滤(mapping):

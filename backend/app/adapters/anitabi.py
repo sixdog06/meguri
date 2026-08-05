@@ -71,6 +71,20 @@ def area_matches(area: str, city: str) -> bool:
     return bool(area and city) and (area in city or city in area)
 
 
+# 单点距作品主城市的上限：anitabi 数据偶有污染点（如 K-ON! 里混进柏林的
+# 勃兰登堡门），超过即丢弃；200km 容得下"由良川橋"这类 ~65km 的日归点。
+_MAX_POINT_DISTANCE_KM = 200.0
+
+
+def _haversine_km(a: list[float], b: list[float]) -> float:
+    """两个 [lat, lng] 的球面距离（km）。"""
+    from math import asin, cos, radians, sin, sqrt
+
+    lat1, lng1, lat2, lng2 = (radians(x) for x in (a[0], a[1], b[0], b[1]))
+    h = sin((lat2 - lat1) / 2) ** 2 + cos(lat1) * cos(lat2) * sin((lng2 - lng1) / 2) ** 2
+    return 2 * 6371 * asin(sqrt(h))
+
+
 _DEBUG_POINTS_FILE = Path(__file__).with_name("debug_anitabi_points.json")
 
 
@@ -118,9 +132,9 @@ class AnitabiClient:
     def fetch_lite(self, subject_id: int) -> dict[str, Any] | None:
         """作品巡礼轻量信息；404 返回 None（无数据），网络/解析异常上抛。"""
         if self._debug:
-            # 罐头 lite：cn 置空让 work_name 回退为用户查询名；城市固定京都
-            # （罐头 points 主要是 K-ON! 的京都切片）
-            return {"cn": "", "city": "京都市"}
+            # 罐头 lite：cn 置空让 work_name 回退为用户查询名；城市/中心点
+            # 固定京都（罐头 points 是 K-ON! 的京都切片；geo 供距离过滤）
+            return {"cn": "", "city": "京都市", "geo": [35.0116, 135.7681]}
         response = self._client.get(f"{ANITABI_BASE_URL}/bangumi/{subject_id}/lite")
         if response.status_code == 404:
             return None
@@ -149,11 +163,15 @@ class AnitabiClient:
         if lite is None:
             return None
         city = str(lite.get("city") or "")
+        center = lite.get("geo")  # 作品主城市中心 [lat, lng]，供距离过滤
         work_name = str(lite.get("cn") or lite.get("title") or work_fallback)
         results: list[Seichi] = []
         for point in self.fetch_points(subject_id):
             geo = point.get("geo")
             if not geo:
+                continue
+            # 距主城市过远的点视为数据污染（如混进的海外点），丢弃
+            if center and _haversine_km(center, geo) > _MAX_POINT_DISTANCE_KM:
                 continue
             results.append(
                 Seichi(
