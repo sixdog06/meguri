@@ -91,11 +91,6 @@ def test_N天请求生成按天组织的行程快照():
     assert itinerary["work"] == WORK
     assert itinerary["day_count"] == DAYS
     assert [d["day"] for d in itinerary["days"]] == [1, 2, 3]
-    # 预算报告随快照产出（#7）：未指定上限时 limit 为 None、不超支
-    budget = itinerary["budget"]
-    assert budget["limit_yen"] is None
-    assert budget["over_budget"] is False
-    assert budget["alert"] is None
 
 
 def test_每天圣地来自候选集且全覆盖():

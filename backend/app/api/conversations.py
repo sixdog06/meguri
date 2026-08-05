@@ -131,33 +131,13 @@ class ItineraryDayOut(BaseModel):
     narrations: list[NarrationOut] = []
 
 
-class BudgetItemOut(BaseModel):
-    """预算明细项（交通段或门票）。"""
-
-    label: str
-    amount_yen: int | None = None  # None = 未计价（不计入合计，不静默当 0）
-
-
-class BudgetOut(BaseModel):
-    """预算报告（#7 确定性预算服务）：总计、交通/门票分项、超支告警。"""
-
-    limit_yen: int | None = None
-    total_yen: int  # 已计价合计
-    over_budget: bool
-    alert: str | None = None
-    transit: list[BudgetItemOut] = []
-    admission: list[BudgetItemOut] = []
-    unpriced_count: int = 0  # 未计价项数（票价缺失的交通段 + 无数据源的门票）
-
-
 class ItineraryOut(BaseModel):
-    """行程快照：按天组织的圣地序列 + 交通段 + 预算报告。"""
+    """行程快照：按天组织的圣地序列 + 交通段。"""
 
     work: str | None = None
     area: str | None = None
     day_count: int
     days: list[ItineraryDayOut]
-    budget: BudgetOut | None = None
 
 
 class ItineraryResponse(BaseModel):
@@ -193,7 +173,7 @@ def get_tool_registry(
     llm: LLMGateway = Depends(get_llm_gateway),
 ) -> ToolRegistry:
     """生产 wiring：注册 Scout 的 search_seichi 工具（#4）与 Planner 的
-    plan_itinerary 工具（#5；#6 Navigator 交通校验、#7 预算、#8 Storyteller）。
+    plan_itinerary 工具（#5；#6 Navigator 交通校验、#8 Storyteller）。
 
     每请求构建，外部依赖经 FastAPI 依赖注入——测试在 HTTP 缝
     override 对应 provider 即换 fake。生成式讲解按 LLM 能力标志启用
@@ -369,7 +349,6 @@ def edit_itinerary(
         transit=transit,
         hours=hours,
         corpus=corpus,
-        limit_yen=(payload.get("budget") or {}).get("limit_yen"),
         llm=generative_llm(llm),
     )
 

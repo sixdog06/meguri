@@ -23,10 +23,8 @@ def load_dataset(name: str) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def plan_script(work: str, area: str, days: int, budget_yen: int | None = None) -> list[dict[str, Any]]:
+def plan_script(work: str, area: str, days: int) -> list[dict[str, Any]]:
     args: dict[str, Any] = {"work": work, "area": area, "days": days}
-    if budget_yen is not None:
-        args["budget_yen"] = budget_yen
     return [
         {"type": "tool_call", "name": "plan_itinerary", "args": args},
         {"type": "final", "content": "评测回复"},

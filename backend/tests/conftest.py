@@ -17,6 +17,16 @@ def clear_dependency_overrides():
     app.dependency_overrides.clear()
 
 
+@pytest.fixture(autouse=True)
+def clear_adapter_caches():
+    """OTP/Overpass 的进程级缓存（生产跨请求共享）在测试间必须隔离。"""
+    from app.adapters import otp, overpass
+
+    otp._ROUTE_CACHE.clear()
+    overpass._HOURS_CACHE.clear()
+    yield
+
+
 @pytest.fixture(scope="session", autouse=True)
 def reset_db_schema():
     """每个测试会话重建一次 schema，保证隔离。Postgres 用真实的。"""

@@ -41,7 +41,7 @@ def test_system_prompt含动态工具清单():
 
     assert "search_seichi" in prompt
     assert "plan_itinerary" in prompt
-    assert "budget_yen" in prompt  # args_hint 进 prompt
+    assert "days" in prompt  # args_hint 进 prompt
     assert "tool_call" in prompt and "最终回复" in prompt  # 线格式说明（final 为纯文本正文）
 
 

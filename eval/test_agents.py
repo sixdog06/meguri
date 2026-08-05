@@ -125,7 +125,6 @@ def test_e2e_检查清单回放评分(tmp_path):
             "day_count_3": itinerary["day_count"] == 3,
             "legs_present": len(legs) > 0,
             "checks_present": len(checks) > 0,
-            "budget_present": itinerary["budget"] is not None,
             "narration_with_citation": any(n["citation"] for n in narrations),
             "traced_pipeline": {"loop_step", "llm_call", "tool_call", "pipeline_stage"}
             <= trace_names,

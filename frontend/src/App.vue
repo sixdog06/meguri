@@ -73,11 +73,12 @@ async function refreshCandidates() {
   }
 }
 
-/** 编辑（#9）：应用一次操作，后端自动重跑校验/预算/讲解，返回新快照整页刷新。 */
+/** 编辑（#9）：应用一次操作，后端自动重跑校验/讲解，返回新快照整页刷新。 */
 async function postEdit(body: Record<string, unknown>) {
   if (!conversationId.value || editing.value) return
   editing.value = true
   error.value = null
+  progress.value = '正在重新校验行程…' // live 模式下重跑交通/开放时间校验，可能数十秒——给出明确的进行中反馈，不是卡死
   try {
     const res = await fetch(`/api/conversations/${conversationId.value}/itinerary/edits`, {
       method: 'POST',
@@ -95,6 +96,7 @@ async function postEdit(body: Record<string, unknown>) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     editing.value = false
+    progress.value = null
   }
 }
 

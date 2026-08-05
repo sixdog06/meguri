@@ -52,6 +52,12 @@ class NoRouteError(Exception):
     """OTP 返回空路线：坐标不在 graph 覆盖范围（如 GTFS/OSM 未覆盖区域）。"""
 
 
+# 进程级路线缓存：编辑后的 revalidate 会重查全行程的段，但绝大多数段与
+# 规划时相同——缓存命中后编辑从分钟级降到秒级（单进程 dev 部署语义，与
+# EventBus 一致；多实例部署需换外部缓存）。键含端点，测试互不污染。
+_ROUTE_CACHE: dict[tuple[str, tuple[float, float], tuple[float, float]], dict[str, Any]] = {}
+
+
 def _fare_yen(itinerary: dict[str, Any]) -> int | None:
     """各 leg 的 fareProducts 价格（JPY）求和；无任何票价数据返回 None。"""
     total = 0.0
@@ -90,7 +96,12 @@ class OTPTransitClient:
         """点间路线查询：返回真实路网/换乘结果（见端口契约）；空路线/异常上抛。
 
         长距离纯步行（GTFS 未覆盖）结果附带 degraded/note 降级提示。
+
+        结果按（端点, 起, 讫）进程内缓存（短时内墙钟差异不影响规划语义）。
         """
+        key = (self._endpoint, origin, destination)
+        if key in _ROUTE_CACHE:
+            return dict(_ROUTE_CACHE[key])
         at = depart_at or datetime.now(_TOKYO)
         response = self._client.post(
             self._endpoint,
@@ -126,4 +137,5 @@ class OTPTransitClient:
         ) > _NO_TRANSIT_KM:
             result["degraded"] = True
             result["note"] = "公共交通数据未覆盖，按步行路网计算"
-        return result
+        _ROUTE_CACHE[key] = result
+        return dict(result)

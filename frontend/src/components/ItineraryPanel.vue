@@ -10,7 +10,7 @@ const props = defineProps<{
   editing: boolean // 一次编辑请求进行中，禁用全部编辑操作
 }>()
 
-// 编辑操作统一上抛给 App（postEdit 后端自动重跑校验/预算/讲解，返回新快照）
+// 编辑操作统一上抛给 App（postEdit 后端自动重跑校验/讲解，返回新快照）
 const emit = defineEmits<{ edit: [body: Record<string, unknown>]; collapse: [] }>()
 
 const activeDay = ref(1)
@@ -42,23 +42,6 @@ function moveStop(day: ItineraryDay, i: number, dir: -1 | 1) {
         <span class="meta">{{ itinerary.day_count }} 天</span>
         <button class="collapse-btn" title="收起行程" @click="emit('collapse')">◂</button>
       </header>
-
-      <details v-if="itinerary.budget" class="budget">
-        <summary :class="{ over: itinerary.budget.over_budget }">
-          ¥{{ itinerary.budget.total_yen.toLocaleString() }}<template v-if="itinerary.budget.limit_yen !== null"> / 上限 ¥{{ itinerary.budget.limit_yen.toLocaleString() }}</template>
-          <span v-if="itinerary.budget.over_budget" class="over-alert">⚠ 超支</span>
-        </summary>
-        <p v-if="itinerary.budget.over_budget" class="over-alert">⚠ {{ itinerary.budget.alert }}</p>
-        <p v-for="(item, i) in itinerary.budget.transit" :key="'t' + i" class="budget-item">
-          交通 · {{ item.label }}：{{ item.amount_yen === null ? '未计价' : `¥${item.amount_yen.toLocaleString()}` }}
-        </p>
-        <p v-for="(item, i) in itinerary.budget.admission" :key="'a' + i" class="budget-item">
-          门票 · {{ item.label }}：{{ item.amount_yen === null ? '未计价' : `¥${item.amount_yen.toLocaleString()}` }}
-        </p>
-        <p v-if="itinerary.budget.unpriced_count" class="unpriced">
-          {{ itinerary.budget.unpriced_count }} 项未计价（票价/门票数据缺失，未计入合计与超支判断）
-        </p>
-      </details>
 
       <nav class="day-tabs">
         <button
@@ -189,35 +172,6 @@ function moveStop(day: ItineraryDay, i: number, dir: -1 | 1) {
 .collapse-btn:hover {
   color: var(--ink);
   border-color: var(--ink-faint);
-}
-.budget {
-  margin: 0.35rem 1rem;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 0.4rem 0.75rem;
-  font-size: 0.84rem;
-  background: #fffdf9;
-}
-.budget summary {
-  cursor: pointer;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-.budget summary.over,
-.over-alert {
-  color: var(--accent);
-}
-.over-alert {
-  font-weight: 700;
-  margin: 0.25rem 0;
-}
-.budget-item {
-  margin: 0.1rem 0;
-  color: var(--ink-soft);
-}
-.unpriced {
-  color: var(--amber-ink);
-  font-size: 0.78rem;
 }
 .day-tabs {
   display: flex;

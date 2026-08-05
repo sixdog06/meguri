@@ -149,8 +149,6 @@ def test_file数据包驱动三天行程():
     stops = [s for d in itinerary["days"] for s in d["seichi"]]
     assert len(stops) == 8
     assert {s["name"] for s in stops} >= {"宇治桥", "宇治神社", "久美子椅"}
-    # 预算结构在（真实票价缺失 → 未计价，不编）
-    assert itinerary["budget"] is not None
     # 刷新后快照仍在
     fresh = TestClient(app)
     assert fresh.get(f"/api/conversations/{cid}/itinerary").json()["itinerary"] == itinerary

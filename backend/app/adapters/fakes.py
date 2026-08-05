@@ -22,7 +22,6 @@ _WORK_KEYWORDS: tuple[tuple[str, str], ...] = (
 _AREA_KEYWORDS: tuple[tuple[str, str], ...] = (("宇治", "宇治"),)
 _CN_DIGITS = {"一": 1, "两": 2, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7}
 _DAYS_PATTERN = re.compile(r"([0-9]+|[一二两三四五六七])\s*天")
-_BUDGET_PATTERN = re.compile(r"预算\s*约?\s*([0-9][0-9,]*)\s*(?:日元|円|块|元)?")
 
 
 class FakeLLMGateway:
@@ -67,9 +66,6 @@ class FakeLLMGateway:
             token = days_match.group(1)
             days = int(token) if token.isdigit() else _CN_DIGITS[token]
             args: dict[str, Any] = {"work": work, "area": area, "days": days}
-            budget_match = _BUDGET_PATTERN.search(text)
-            if budget_match:
-                args["budget_yen"] = int(budget_match.group(1).replace(",", ""))
             return json.dumps(
                 {"type": "tool_call", "name": "plan_itinerary", "args": args},
                 ensure_ascii=False,

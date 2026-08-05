@@ -1,6 +1,6 @@
 """行程编辑（#9）：增、删、改序、换天四种操作的纯结构变换。
 
-只改结构（不动 legs/checks/narrations/budget——调用方随后经 revalidate
+只改结构（不动 legs/checks/narrations——调用方随后经 revalidate
 管线重建与重算）。错误分两档：UnknownSeichiError（id 不存在 → 404）、
 InvalidEditError（参数非法 → 422），HTTP 状态映射在 API 边界。
 """

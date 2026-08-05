@@ -44,7 +44,7 @@ FIXTURE = [A1, A2, A3, B1, B2, C1]
 PLAN_SCRIPT = [
     json.dumps(
         {"type": "tool_call", "name": "plan_itinerary",
-         "args": {"work": WORK, "area": AREA, "days": 3, "budget_yen": 1000}}
+         "args": {"work": WORK, "area": AREA, "days": 3}}
     ),
     json.dumps({"type": "final", "content": "三天行程已生成"}),
 ]
@@ -89,10 +89,9 @@ def day_of(itinerary: dict, seichi_id: str) -> dict:
     raise AssertionError(f"{seichi_id} 不在行程中")
 
 
-def test_删除圣地_legs重算_预算刷新_讲解消失():
+def test_删除圣地_legs重算_讲解消失():
     client = make_client()
-    cid, before = plan(client)
-    before_total = before["budget"]["total_yen"]
+    cid, _ = plan(client)
 
     result = edit(client, cid, {"type": "remove", "seichi_id": "a3"})
 
@@ -105,9 +104,6 @@ def test_删除圣地_legs重算_预算刷新_讲解消失():
     # 被删站的讲解消失
     narrations = [n for d in itinerary["days"] for n in d["narrations"]]
     assert all(n["seichi_id"] != "a3" for n in narrations)
-    # 预算重算（少一站门票明细 + legs 变化）
-    assert len(itinerary["budget"]["admission"]) == 5
-    assert itinerary["budget"]["total_yen"] != before_total or before_total == 0
     # 新快照落库
     fresh = TestClient(app)
     assert fresh.get(f"/api/conversations/{cid}/itinerary").json()["itinerary"] == itinerary
@@ -179,8 +175,6 @@ def test_编辑后新交通段被真实数据替换():
     for leg in legs:
         assert leg["estimate"] is False
         assert leg["mode"] == "transit"
-    # 预算同步刷新为真实票价
-    assert result["itinerary"]["budget"]["total_yen"] == 4 * 200
 
 
 def test_候选列表端点_排除已在行程中的圣地():

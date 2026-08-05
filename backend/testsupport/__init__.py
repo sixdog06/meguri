@@ -9,7 +9,9 @@ import os
 from pathlib import Path
 
 # --- 环境装配（import 即生效，app 导入链读取 settings 前必须完成） ---
-os.environ["MEGURI_DATABASE_URL"] = "postgresql+psycopg://meguri:meguri@localhost:5433/meguri"
+# 测试用独立的 meguri_test 库：与 dev 守护进程共用的 meguri 库隔离——
+# 此前 reset_schema 会把用户 dev 数据一起 drop 掉。
+os.environ["MEGURI_DATABASE_URL"] = "postgresql+psycopg://meguri:meguri@localhost:5433/meguri_test"
 os.environ["MEGURI_ADAPTER_MODE"] = "fake"
 os.environ["MEGURI_SEICHI_MODE"] = "fake"
 os.environ["MEGURI_TRANSIT_MODE"] = "fake"
@@ -19,12 +21,27 @@ os.environ["MEGURI_CORPUS_MODE"] = "fake"
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 
 
+def _ensure_test_database() -> None:
+    """meguri_test 不存在则创建（CREATE DATABASE 不能在事务里，autocommit）。"""
+    import psycopg
+
+    with psycopg.connect(
+        "postgresql://meguri:meguri@localhost:5433/postgres", autocommit=True
+    ) as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM pg_database WHERE datname = 'meguri_test'"
+        ).fetchone()
+        if not exists:
+            conn.execute("CREATE DATABASE meguri_test")
+
+
 def reset_schema() -> None:
     """重建 schema（行为测试/评测会话级隔离）。Postgres 用真实的（5433）。"""
     from sqlalchemy import text
 
     from app import db, models  # noqa: F401  (导入 models 以注册表)
 
+    _ensure_test_database()
     engine = db._get_engine()
     db.Base.metadata.drop_all(engine)
     with engine.connect() as conn:

@@ -91,7 +91,7 @@ class PlanItineraryTool:
     name = "plan_itinerary"
     description = "按作品+地区+天数生成按天组织的行程快照（地理聚类、顺序优化、交通段估算）"
     # system prompt 动态工具清单用（Orchestrator._system_prompt）
-    args_hint = '{"work": "作品中文全名", "area": "城市/地区名", "days": 天数整数, "budget_yen": "可选，预算上限日元整数"}'
+    args_hint = '{"work": "作品中文全名", "area": "城市/地区名", "days": 天数整数}'
 
     MAX_DAYS = 7
 
@@ -118,9 +118,9 @@ class PlanItineraryTool:
             self.progress_sink(stage)
 
     def run(self, args: dict[str, Any]) -> str:
-        """生成行程快照：检索 → 聚类规划 → 校验/预算/讲解收尾 → JSON 观察值。
+        """生成行程快照：检索 → 聚类规划 → 校验/讲解收尾 → JSON 观察值。
 
-        参数容忍模型给的脏值（days 非整数、预算非法一律回退默认）。
+        参数容忍模型给的脏值（days 非整数回退默认）。
         """
         work = str(args.get("work") or "").strip()
         area = str(args.get("area") or "").strip()
@@ -129,10 +129,6 @@ class PlanItineraryTool:
         except (TypeError, ValueError):
             days = 1
         days = min(max(1, days), self.MAX_DAYS)
-        try:
-            budget_yen = int(args["budget_yen"]) if args.get("budget_yen") else None
-        except (TypeError, ValueError):
-            budget_yen = None
 
         self._progress("检索中")
         self.notice = None
@@ -149,13 +145,12 @@ class PlanItineraryTool:
         snapshot = plan_itinerary(seichi, days, progress=self._progress)
         snapshot.work = work
         snapshot.area = area
-        # 收尾管线（revalidate.finalize_snapshot）：Navigator 校验 → 预算 → 讲解
+        # 收尾管线（revalidate.finalize_snapshot）：Navigator 校验 → 讲解
         finalize_snapshot(
             snapshot,
             transit=self._transit,
             hours=self._hours,
             corpus=self._corpus,
-            limit_yen=budget_yen,
             progress=self._progress,
             llm=self._llm,
         )

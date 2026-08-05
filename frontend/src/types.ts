@@ -60,30 +60,12 @@ export interface ItineraryDay {
   narrations: Narration[]
 }
 
-/** 预算明细项：amount_yen 为 null = 未计价（不计入合计，不静默当 0）。 */
-export interface BudgetItem {
-  label: string
-  amount_yen: number | null
-}
-
-/** 预算报告：总计、交通/门票分项、超支告警（#7 确定性预算服务）。 */
-export interface Budget {
-  limit_yen: number | null
-  total_yen: number // 已计价合计
-  over_budget: boolean
-  alert: string | null
-  transit: BudgetItem[]
-  admission: BudgetItem[]
-  unpriced_count: number // 未计价项数
-}
-
-/** 行程快照：按天组织的圣地序列 + 交通段 + 预算报告（#7 预算服务产出）。 */
+/** 行程快照：按天组织的圣地序列 + 交通段。 */
 export interface Itinerary {
   work: string | null
   area: string | null
   day_count: number
   days: ItineraryDay[]
-  budget: Budget | null
 }
 
 /** 每日路线颜色（地图 polyline 与按天视图的色点共用）。低饱和传统色，呼应整体日式极简基调。 */
