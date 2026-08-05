@@ -46,6 +46,11 @@ def validate_itinerary(
     at_date = day_date or date.today()
     emit("校验中")
     seichi_by_id = {str(s.id): s for d in snapshot.days for s in d.seichi}
+    # Overpass 批量预取（一次请求拿全行程的开放时间；无此方法的 fake 跳过）
+    if hours is not None:
+        prefetch = getattr(hours, "prefetch", None)
+        if prefetch is not None:
+            prefetch([(s.lat, s.lng) for d in snapshot.days for s in d.seichi])
 
     for day in snapshot.days:
         clock = datetime.combine(at_date, DAY_START)

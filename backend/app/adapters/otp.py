@@ -84,7 +84,9 @@ class OTPTransitClient:
         client: httpx.Client | None = None,
     ) -> None:
         self._endpoint = f"{base_url.rstrip('/')}/routers/default/index/graphql"
-        self._client = client or httpx.Client(timeout=timeout)
+        # trust_env=False：本地服务绝不能走系统代理（macOS 下 getproxies 会
+        # 读系统偏好里的代理，把 localhost 请求也劫持过去）
+        self._client = client or httpx.Client(timeout=timeout, trust_env=False)
 
     def route(
         self,
