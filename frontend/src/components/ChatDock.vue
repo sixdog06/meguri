@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
+import DOMPurify from 'dompurify'
+import { marked } from 'marked'
 import type { ChatMessage } from '../types'
+
+/** assistant 回复是 Markdown：解析 + 消毒后渲染（LLM 输出不可信，必须过 DOMPurify）。 */
+function md(text: string): string {
+  return DOMPurify.sanitize(marked.parse(text, { async: false }))
+}
 
 const props = defineProps<{
   messages: ChatMessage[]
@@ -65,10 +72,11 @@ function onBarPointerDown(e: PointerEvent) {
     </div>
     <ul v-if="open" ref="listEl" class="messages">
       <li v-for="m in messages" :key="m.id" :class="m.role">
-        <span class="bubble">{{ m.content }}</span>
+        <span v-if="m.role === 'assistant'" class="bubble markdown" v-html="md(m.content)"></span>
+        <span v-else class="bubble">{{ m.content }}</span>
       </li>
       <li v-if="streaming" class="assistant">
-        <span class="bubble streaming">{{ streaming }}<span class="cursor">▍</span></span>
+        <span class="bubble markdown streaming"><span v-html="md(streaming)"></span><span class="cursor">▍</span></span>
       </li>
       <li v-else-if="progress" class="assistant">
         <span class="bubble muted">{{ progress }}</span>
@@ -152,6 +160,74 @@ function onBarPointerDown(e: PointerEvent) {
 .user .bubble {
   background: var(--ink);
   color: var(--paper);
+}
+.bubble.markdown {
+  white-space: normal; /* Markdown 渲染后按块级布局，不再保留纯文本换行语义 */
+}
+.bubble.markdown :deep(> *:first-child) {
+  margin-top: 0;
+}
+.bubble.markdown :deep(> *:last-child) {
+  margin-bottom: 0;
+}
+.bubble.markdown :deep(h1),
+.bubble.markdown :deep(h2),
+.bubble.markdown :deep(h3),
+.bubble.markdown :deep(h4) {
+  margin: 0.7em 0 0.35em;
+  font-size: 1em;
+  line-height: 1.4;
+}
+.bubble.markdown :deep(p) {
+  margin: 0.4em 0;
+}
+.bubble.markdown :deep(ul),
+.bubble.markdown :deep(ol) {
+  margin: 0.35em 0;
+  padding-left: 1.3em;
+}
+.bubble.markdown :deep(li) {
+  margin: 0.15em 0;
+}
+.bubble.markdown :deep(code) {
+  background: rgb(0 0 0 / 0.06);
+  border-radius: 4px;
+  padding: 0.1em 0.3em;
+  font-size: 0.85em;
+}
+.bubble.markdown :deep(pre) {
+  background: rgb(0 0 0 / 0.06);
+  border-radius: 8px;
+  padding: 0.5em 0.7em;
+  overflow-x: auto;
+}
+.bubble.markdown :deep(pre code) {
+  background: none;
+  padding: 0;
+}
+.bubble.markdown :deep(blockquote) {
+  margin: 0.4em 0;
+  padding-left: 0.7em;
+  border-left: 3px solid var(--line);
+  color: var(--ink-faint);
+}
+.bubble.markdown :deep(table) {
+  border-collapse: collapse;
+  margin: 0.4em 0;
+  font-size: 0.85em;
+}
+.bubble.markdown :deep(th),
+.bubble.markdown :deep(td) {
+  border: 1px solid var(--line);
+  padding: 0.2em 0.5em;
+}
+.bubble.markdown :deep(hr) {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 0.6em 0;
+}
+.bubble.markdown :deep(a) {
+  color: inherit;
 }
 .bubble.muted {
   background: transparent;
