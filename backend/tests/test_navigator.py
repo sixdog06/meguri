@@ -1,6 +1,6 @@
 """Ticket #6：Navigator 交通与时间校验。
 
-- 行为测试经 HTTP 缝驱动，TransitClient / OpeningHoursSource 用 fake 注入；
+- 行为测试经 HTTP 缝驱动，TransitClient 用 fake 注入；
 - OTPTransitClient 的 GraphQL 响应解析用真实形状的响应体经 MockTransport 回放
   （OTP 集成不进 pytest，graph 构建走 otp/ pipeline 脚本）。
 """
@@ -12,16 +12,14 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app.adapters.fakes import FakeLLMGateway, FakeOpeningHours, FakeSeichiRepository, FakeTransitClient
+from app.adapters.fakes import FakeLLMGateway, FakeSeichiRepository, FakeTransitClient
 from app.adapters.otp import NoRouteError, OTPTransitClient
 from app.adapters.ports import Seichi
 from app.adapters.providers import (
     get_llm_gateway,
-    get_opening_hours_source,
     get_seichi_repository,
     get_transit_client,
 )
-from app.agents.opening_hours import is_open
 from app.main import app
 
 WORK = "吹响吧！上低音号"
@@ -63,12 +61,10 @@ REAL_ROUTES = [
 
 def make_client(
     transit: FakeTransitClient | None = None,
-    hours: FakeOpeningHours | None = None,
 ) -> TestClient:
     app.dependency_overrides[get_llm_gateway] = lambda: FakeLLMGateway(scripted=list(PLAN_SCRIPT))
     app.dependency_overrides[get_seichi_repository] = lambda: FakeSeichiRepository(seichi=FIXTURE)
     app.dependency_overrides[get_transit_client] = lambda: transit or FakeTransitClient()
-    app.dependency_overrides[get_opening_hours_source] = lambda: hours or FakeOpeningHours()
     return TestClient(app)
 
 
@@ -117,13 +113,9 @@ def test_OTP不可达时保留估算并显式降级():
     assert itinerary["day_count"] == 3  # 行程仍可用
 
 
-def test_开放时间校验_闭馆被标记():
-    hours = FakeOpeningHours({
-        (34.8929, 135.8065): "24/7",  # 宇治桥
-        (34.8905, 135.8099): "Mo-Su 09:00-09:30",  # 宇治神社：计划到达时已过开放时间
-    })
+def test_时刻推算_各站计划到达时间():
     transit = FakeTransitClient(scripted=list(REAL_ROUTES))
-    client = make_client(transit=transit, hours=hours)
+    client = make_client(transit=transit)
 
     itinerary = plan(client)
 
@@ -131,12 +123,8 @@ def test_开放时间校验_闭馆被标记():
     checks = {c["seichi_id"]: c for c in day2["checks"]}
     # 09:00 出发，每站停留 45 分钟，leg 耗时 10 分钟
     assert checks["a1"]["arrive_time"] == "09:00"
-    assert checks["a1"]["open"] is True  # 24/7
     assert checks["a3"]["arrive_time"] == "09:55"
-    assert checks["a3"]["open"] is None  # 无开放时间数据 → 不标记
     assert checks["a2"]["arrive_time"] == "10:50"
-    assert checks["a2"]["open"] is False  # 到达时已闭馆
-    assert checks["a2"]["note"]
 
 
 def test_无交通数据源时估算段保留且不标降级():
@@ -147,32 +135,6 @@ def test_无交通数据源时估算段保留且不标降级():
 
     legs = [leg for d in itinerary["days"] for leg in d["legs"]]
     assert all(leg["estimate"] is True and leg["degraded"] is False for leg in legs)
-
-
-# --- opening_hours 子集解析 ---
-
-
-@pytest.mark.parametrize(
-    "oh, at, weekday, expected",
-    [
-        ("24/7", "03:00", 0, True),
-        ("Mo-Fr 09:00-17:00", "10:00", 0, True),  # 周一
-        ("Mo-Fr 09:00-17:00", "10:00", 5, False),  # 周六
-        ("Mo-Fr 09:00-17:00", "18:00", 0, False),
-        ("Mo-Su 09:00-17:00", "12:00", 6, True),
-        ("09:00-17:00", "12:00", 2, True),  # 无日部分 = 每天
-        ("Tu-Su 09:00-17:00", "12:00", 0, False),  # 周一休馆
-        ("Mo-Fr 09:00-12:00,13:00-17:00", "12:30", 1, False),  # 午休
-        ("Mo-Fr 09:00-12:00,13:00-17:00", "13:30", 1, True),
-        ("not a real format !!!", "12:00", 0, None),  # 无法解析 → 未知
-        ("Mo-Fr", "12:00", 0, None),  # 无时间部分 → 无法判断
-    ],
-)
-def test_opening_hours子集解析(oh, at, weekday, expected):
-    hh, mm = at.split(":")
-    from datetime import time
-
-    assert is_open(oh, time(int(hh), int(mm)), weekday) is expected
 
 
 # --- OTPTransitClient 响应解析（真实形状响应回放） ---
@@ -395,7 +357,6 @@ def make_line_client(transit) -> TestClient:
     app.dependency_overrides[get_llm_gateway] = lambda: FakeLLMGateway(scripted=list(LINE_PLAN_SCRIPT))
     app.dependency_overrides[get_seichi_repository] = lambda: FakeSeichiRepository(seichi=LINE_FIXTURE)
     app.dependency_overrides[get_transit_client] = lambda: transit
-    app.dependency_overrides[get_opening_hours_source] = lambda: FakeOpeningHours()
     return TestClient(app)
 
 

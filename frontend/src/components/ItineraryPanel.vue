@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { Itinerary, ItineraryDay, SeichiCandidate } from '../types'
-import { checkOf, crossDayLeg, dayTransitMinutes, formatMinutes, legBetween, legLabel, narrationOf } from '../itinerary'
+import { crossDayLeg, dayTransitMinutes, formatMinutes, legBetween, legLabel, narrationOf } from '../itinerary'
 import { dayColor } from '../types'
 import { routeUrl } from '../gmaps'
 import { exportItineraryPdf } from '../pdf'
@@ -147,9 +147,6 @@ function addStop(day: ItineraryDay) {
             <div class="t-card">
               <div class="t-head">
                 <span class="t-name" title="在地图上定位" @click="emit('focus', s)">{{ s.name }}</span>
-                <span v-if="checkOf(displayDay, s.id)?.open === false" class="warn" :title="checkOf(displayDay, s.id)!.note ?? ''">
-                  可能闭馆
-                </span>
               </div>
               <!-- 对照截图（anitabi 参考图）：有就展示，与地图弹窗一致 -->
               <img v-if="s.image" class="t-photo" :src="s.image" :alt="s.name" loading="lazy" />
@@ -209,7 +206,7 @@ function addStop(day: ItineraryDay) {
         </button>
       </div>
 
-      <!-- 编辑等待遮罩：重校验需数秒（live 交通/开放时间），明确提示而非"卡死" -->
+      <!-- 编辑等待遮罩：重校验需数秒（live 交通），明确提示而非"卡死" -->
       <div v-if="editing" class="edit-wait">
         <span class="spinner" />
         <span>稍等，正在重新校验行程…</span>
@@ -458,13 +455,6 @@ function addStop(day: ItineraryDay) {
 }
 .t-name:hover {
   color: var(--accent);
-}
-.warn {
-  background: var(--accent-soft-bg);
-  color: var(--accent);
-  border-radius: 4px;
-  padding: 0 0.35rem;
-  font-size: 0.72rem;
 }
 .t-leg-label {
   color: var(--ink-faint);

@@ -134,14 +134,3 @@ class FakeTransitClient:
         if self._scripted:
             return self._scripted.pop(0)
         return {"mode": "fake", "duration_minutes": 0, "fare_yen": None, "estimate": True}
-
-
-class FakeOpeningHours:
-    """按 (lat, lng) 键控的开放时间 fake。"""
-
-    def __init__(self, hours: dict[tuple[float, float], str] | None = None) -> None:
-        self._hours = dict(hours or {})
-
-    def opening_hours(self, lat: float, lng: float) -> str | None:
-        """按精确坐标查固定数据；无记录返回 None（未知，与 live 降级语义一致）。"""
-        return self._hours.get((lat, lng))

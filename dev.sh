@@ -14,10 +14,9 @@ export MEGURI_ADAPTER_MODE=live
 export MEGURI_SEICHI_MODE=live
 # debug 模式：anitabi 不触网，返回固定罐头数据（K-ON! 京都切片）；生产置 false
 export MEGURI_DEBUG_MODE=true
-# 交通/开放时间走本地 OTP（otp/download.sh + otp/build.sh 先建 graph，
+# 交通走本地 OTP（otp/download.sh + otp/build.sh 先建 graph，
 # docker compose up -d otp 起服务；OTP 未起时 Navigator 自动降级为估算段）
 export MEGURI_TRANSIT_MODE=live
-export MEGURI_HOURS_MODE=live
 # RAG 语料走同库 pgvector（灌库：.venv/bin/python -m app.rag.ingest --work 吹响吧！上低音号）
 export MEGURI_CORPUS_MODE=live
 

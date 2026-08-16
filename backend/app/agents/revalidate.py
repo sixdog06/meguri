@@ -6,7 +6,7 @@
   checks、保留未受影响站的讲解）后接 finalize。
 """
 
-from app.adapters.ports import CorpusStore, LLMGateway, OpeningHoursSource, TransitClient
+from app.adapters.ports import CorpusStore, LLMGateway, TransitClient
 from app.agents.navigator import validate_itinerary
 from app.agents.planner import ItinerarySnapshot, Progress, rebuild_days
 from app.agents.storyteller import Narration, narrate_itinerary
@@ -16,7 +16,6 @@ def finalize_snapshot(
     snapshot: ItinerarySnapshot,
     *,
     transit: TransitClient | None,
-    hours: OpeningHoursSource | None,
     corpus: CorpusStore | None,
     progress: Progress | None = None,
     existing_narrations: dict[str, Narration] | None = None,
@@ -25,7 +24,7 @@ def finalize_snapshot(
     """收尾管线：Navigator 校验 → Storyteller 讲解（如有语料库）。
 
     llm 提供时讲解走生成式（接真实模型）；否则保持检索式拼装。"""
-    validate_itinerary(snapshot, transit, hours, progress=progress)
+    validate_itinerary(snapshot, transit, progress=progress)
     if corpus is not None:
         narrate_itinerary(
             snapshot, corpus, progress=progress, existing=existing_narrations, llm=llm
@@ -37,7 +36,6 @@ def revalidate_snapshot(
     snapshot: ItinerarySnapshot,
     *,
     transit: TransitClient | None,
-    hours: OpeningHoursSource | None,
     corpus: CorpusStore | None,
     llm: LLMGateway | None = None,
 ) -> ItinerarySnapshot:
@@ -56,7 +54,6 @@ def revalidate_snapshot(
     return finalize_snapshot(
         snapshot,
         transit=transit,
-        hours=hours,
         corpus=corpus,
         existing_narrations=existing,
         llm=llm,

@@ -58,10 +58,9 @@ def test_navigator_时间可行性规则():
             repo_seichi=case["seichi"],
             llm_script=plan_script(case["work"], case["area"], case["days"]),
             transit_routes=case["transit"],
-            hours=case["hours"],
         )
         itinerary = run_message(client, "规划行程")["itinerary"]
-        rules = navigator_rules(itinerary, case["expect_closed_ids"])
+        rules = navigator_rules(itinerary)
         score = sum(rules.values()) / len(rules)
         print(f"\n[eval:navigator] {case['case']}: score={score:.2f} {json.dumps(rules, ensure_ascii=False)}")
         assert all(rules.values()), f"规则未全过: {rules}"

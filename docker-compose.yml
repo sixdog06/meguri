@@ -26,7 +26,6 @@ services:
       MEGURI_SEICHI_MODE: live
       MEGURI_TRANSIT_MODE: live
       MEGURI_OTP_BASE_URL: http://otp:8080/otp
-      MEGURI_HOURS_MODE: live
       MEGURI_CORPUS_MODE: live
     depends_on:
       db:

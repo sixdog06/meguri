@@ -37,12 +37,10 @@ export interface TransitLeg {
   note: string | null
 }
 
-/** 单站时间校验：计划到达时间 + 开放时间（open 为 null = 未知不误标）。 */
+/** 单站时间校验：计划到达时间。 */
 export interface StopCheck {
   seichi_id: string
   arrive_time: string
-  open: boolean | null
-  note: string | null
 }
 
 /** 单站讲解（#8 Storyteller）：检索语料原文片段 + citation。 */

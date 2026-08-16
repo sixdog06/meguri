@@ -23,13 +23,11 @@ class Settings(BaseSettings):
     # 开发 debug 模式：true 时 anitabi 完全不触网，lite/points 返回固定
     # 罐头数据（K-ON! 京都切片）；生产/发布前置 false。其余逻辑不变。
     debug_mode: bool = False
-    # 交通/开放时间数据源（#6）：live = 本地 OTP 服务 + Overpass。
+    # 交通数据源（#6）：live = 本地 OTP 服务。
     # 默认 fake（不依赖重服务）；dev.sh / compose 显式开 live。
     # OTP 不可达时 Navigator 自动降级为估算段（degraded 标记），不报错。
     transit_mode: Literal["fake", "live"] = "fake"
-    hours_mode: Literal["fake", "live"] = "fake"
     otp_base_url: str = "http://localhost:8081/otp"
-    overpass_url: str = "https://overpass-api.de/api/interpreter"
     # RAG 语料库（#8）：live = pgvector（同库 corpus_chunks 表）+ embedding
     # （无 openai_api_key 时用确定性哈希向量——检索链路真实、向量 fake）。
     corpus_mode: Literal["fake", "live"] = "fake"

@@ -1,7 +1,7 @@
 """Adapter wiring：按 settings 选择 fake / live / file 实现。
 
 LLM 由 MEGURI_ADAPTER_MODE 控制；圣地数据源由独立的 MEGURI_SEICHI_MODE
-控制（#4，与 LLM 解耦）；交通/开放时间/语料库各有 *_mode 开关。这是唯一
+控制（#4，与 LLM 解耦）；交通/语料库各有 *_mode 开关。这是唯一
 消费这些配置的地方；其余代码依赖端口（app.adapters.ports），测试在
 HTTP 缝 override 这些 provider。
 """
@@ -9,18 +9,15 @@ HTTP 缝 override 这些 provider。
 from app.adapters.anitabi import AnitabiClient, AnitabiSeichiRepository
 from app.adapters.fakes import (
     FakeLLMGateway,
-    FakeOpeningHours,
     FakeSeichiRepository,
     FakeTransitClient,
 )
 from app.adapters.file_seichi import FileSeichiRepository
 from app.adapters.llm import LangChainLLMGateway
 from app.adapters.otp import OTPTransitClient
-from app.adapters.overpass import OverpassOpeningHours
 from app.adapters.ports import (
     CorpusStore,
     LLMGateway,
-    OpeningHoursSource,
     SeichiRepository,
     TransitClient,
 )
@@ -75,14 +72,6 @@ def get_transit_client() -> TransitClient:
     if settings.transit_mode == "live":
         return OTPTransitClient(settings.otp_base_url)
     return FakeTransitClient()
-
-
-def get_opening_hours_source() -> OpeningHoursSource:
-    """按 hours_mode 选开放时间源：live=Overpass（OSM），fake=空数据。"""
-    settings = get_settings()
-    if settings.hours_mode == "live":
-        return OverpassOpeningHours(settings.overpass_url)
-    return FakeOpeningHours()
 
 
 def get_corpus_store() -> CorpusStore:

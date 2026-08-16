@@ -1,6 +1,6 @@
 /** 行程视图的纯函数助手：按天数据推导展示所需的时间/交通/讲解信息。 */
 
-import type { ItineraryDay, Narration, StopCheck, TransitLeg } from './types'
+import type { ItineraryDay, Narration, TransitLeg } from './types'
 
 const legModeLabels: Record<string, string> = {
   walk: '步行',
@@ -24,11 +24,6 @@ export function legBetween(day: ItineraryDay, i: number): TransitLeg | undefined
 /** 跨天连接段：每天末尾到次日开头（挂在出发天 legs 末尾）。 */
 export function crossDayLeg(day: ItineraryDay): TransitLeg | undefined {
   return day.legs.find((l) => l.cross_day)
-}
-
-/** 单站时间校验结果（计划到达时间 + 开放时间）。 */
-export function checkOf(day: ItineraryDay, seichiId: string | null): StopCheck | undefined {
-  return day.checks.find((c) => c.seichi_id === seichiId)
 }
 
 /** 单站讲解（检索语料 + citation）。 */

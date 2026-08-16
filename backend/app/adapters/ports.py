@@ -86,12 +86,6 @@ class TransitClient(Protocol):
     ) -> dict[str, Any]: ...
 
 
-class OpeningHoursSource(Protocol):
-    """开放时间数据源（OSM opening_hours）。返回 None = 未知（不误标）。"""
-
-    def opening_hours(self, lat: float, lng: float) -> str | None: ...
-
-
 @dataclass
 class CorpusChunk:
     """RAG 语料块（#8）：作品条目 / 地标描述，经统一检索接口访问。"""

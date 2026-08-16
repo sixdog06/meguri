@@ -11,3 +11,5 @@ otp/data/
 .dev-logs/
 .idea/
 data/seichi/.ingest_progress.json
+# 分析中间稿（本地参考，不入库）
+ANALYSIS.md

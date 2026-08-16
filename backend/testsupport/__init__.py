@@ -15,7 +15,6 @@ os.environ["MEGURI_DATABASE_URL"] = "postgresql+psycopg://meguri:meguri@localhos
 os.environ["MEGURI_ADAPTER_MODE"] = "fake"
 os.environ["MEGURI_SEICHI_MODE"] = "fake"
 os.environ["MEGURI_TRANSIT_MODE"] = "fake"
-os.environ["MEGURI_HOURS_MODE"] = "fake"
 os.environ["MEGURI_CORPUS_MODE"] = "fake"
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
@@ -55,18 +54,13 @@ def make_client(
     repo_seichi: list,
     llm_script: list[dict],
     transit_routes: list[dict] | None = None,
-    hours: dict | None = None,
     chunks: list | None = None,
 ):
-    """按夹具组装 HTTP 缝客户端（全 fake）+ trace 收集器。
-
-    hours 支持两种键："lat,lng" 字符串（JSONL 数据集）或 (lat, lng) 元组。
-    """
+    """按夹具组装 HTTP 缝客户端（全 fake）+ trace 收集器。"""
     from fastapi.testclient import TestClient
 
     from app.adapters.fakes import (
         FakeLLMGateway,
-        FakeOpeningHours,
         FakeSeichiRepository,
         FakeTransitClient,
     )
@@ -74,7 +68,6 @@ def make_client(
     from app.adapters.providers import (
         get_corpus_store,
         get_llm_gateway,
-        get_opening_hours_source,
         get_seichi_repository,
         get_transit_client,
     )
@@ -89,14 +82,6 @@ def make_client(
     def chunk_of(data):
         return data if isinstance(data, CorpusChunk) else CorpusChunk(**data)
 
-    parsed_hours = {}
-    for key, value in (hours or {}).items():
-        if isinstance(key, str):
-            lat, lng = key.split(",")
-            parsed_hours[(float(lat), float(lng))] = value
-        else:
-            parsed_hours[key] = value
-
     scripted = [s if isinstance(s, str) else json.dumps(s, ensure_ascii=False) for s in llm_script]
     tracer = InMemoryTracer()
     app.dependency_overrides[get_llm_gateway] = lambda: FakeLLMGateway(scripted=scripted)
@@ -106,7 +91,6 @@ def make_client(
     app.dependency_overrides[get_transit_client] = lambda: FakeTransitClient(
         scripted=list(transit_routes or [])
     )
-    app.dependency_overrides[get_opening_hours_source] = lambda: FakeOpeningHours(parsed_hours)
     app.dependency_overrides[get_corpus_store] = lambda: InMemoryCorpusStore(
         chunks=[chunk_of(c) for c in chunks or []]
     )

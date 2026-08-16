@@ -87,7 +87,7 @@ async function submitEdits(ops: Record<string, unknown>[]) {
   if (!conversationId.value || editing.value || ops.length === 0) return
   editing.value = true
   error.value = null
-  progress.value = '正在重新校验行程…' // live 模式下重跑交通/开放时间校验，可能数十秒——给出明确的进行中反馈，不是卡死
+  progress.value = '正在重新校验行程…' // live 模式下重跑交通校验，可能数十秒——给出明确的进行中反馈，不是卡死
   try {
     for (const body of ops) {
       const res = await fetch(`/api/conversations/${conversationId.value}/itinerary/edits`, {

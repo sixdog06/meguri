@@ -17,7 +17,6 @@ from app.adapters.llm import LLMUnavailableError
 from app.adapters.ports import (
     CorpusStore,
     LLMGateway,
-    OpeningHoursSource,
     SeichiRepository,
     TransitClient,
 )
@@ -25,7 +24,6 @@ from app.adapters.providers import (
     generative_llm,
     get_corpus_store,
     get_llm_gateway,
-    get_opening_hours_source,
     get_seichi_repository,
     get_transit_client,
 )
@@ -98,12 +96,10 @@ class TransitLegOut(BaseModel):
 
 
 class StopCheckOut(BaseModel):
-    """单站时间校验：计划到达时间 + 开放时间（None = 未知不误标）。"""
+    """单站时间校验：计划到达时间。"""
 
     seichi_id: str
     arrive_time: str
-    open: bool | None = None
-    note: str | None = None
 
 
 class CitationOut(BaseModel):
@@ -168,7 +164,6 @@ class MessageOut(BaseModel):
 def get_tool_registry(
     repository: SeichiRepository = Depends(get_seichi_repository),
     transit: TransitClient = Depends(get_transit_client),
-    hours: OpeningHoursSource = Depends(get_opening_hours_source),
     corpus: CorpusStore = Depends(get_corpus_store),
     llm: LLMGateway = Depends(get_llm_gateway),
 ) -> ToolRegistry:
@@ -182,7 +177,7 @@ def get_tool_registry(
     registry = ToolRegistry()
     registry.register(SearchSeichiTool(repository))
     registry.register(
-        PlanItineraryTool(repository, transit, hours, corpus, generative_llm(llm))
+        PlanItineraryTool(repository, transit, corpus, generative_llm(llm))
     )
     return registry
 
@@ -326,7 +321,6 @@ def edit_itinerary(
     session: Session = Depends(get_session),
     repository: SeichiRepository = Depends(get_seichi_repository),
     transit: TransitClient = Depends(get_transit_client),
-    hours: OpeningHoursSource = Depends(get_opening_hours_source),
     corpus: CorpusStore = Depends(get_corpus_store),
     llm: LLMGateway = Depends(get_llm_gateway),
 ) -> ItineraryResponse:
@@ -347,7 +341,6 @@ def edit_itinerary(
     revalidate_snapshot(
         snapshot,
         transit=transit,
-        hours=hours,
         corpus=corpus,
         llm=generative_llm(llm),
     )

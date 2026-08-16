@@ -87,7 +87,7 @@ def planner_rules(itinerary: dict[str, Any], expect_days: int, candidate_count: 
     }
 
 
-def navigator_rules(itinerary: dict[str, Any], expect_closed_ids: list[str]) -> dict[str, bool]:
+def navigator_rules(itinerary: dict[str, Any]) -> dict[str, bool]:
     """Navigator 时间可行性规则。"""
     all_checks = [c for d in itinerary["days"] for c in d["checks"]]
     stops = [s for d in itinerary["days"] for s in d["seichi"]]
@@ -102,7 +102,4 @@ def navigator_rules(itinerary: dict[str, Any], expect_closed_ids: list[str]) -> 
             len(c["arrive_time"]) == 5 and c["arrive_time"][2] == ":" for c in all_checks
         ),
         "times_monotonic_within_day": all(monotonic(d) for d in itinerary["days"]),
-        "closed_stops_marked": sorted(
-            c["seichi_id"] for c in all_checks if c["open"] is False
-        ) == sorted(expect_closed_ids),
     }

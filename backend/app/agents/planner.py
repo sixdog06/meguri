@@ -51,12 +51,10 @@ class TransitLeg:
 
 @dataclass
 class StopCheck:
-    """单站时间校验结果（#6）：计划到达时间 + 开放时间校验。"""
+    """单站时间校验结果（#6）：计划到达时间。"""
 
     seichi_id: str
     arrive_time: str  # "HH:MM" 计划到达
-    open: bool | None = None  # None = 开放时间未知（不误标）
-    note: str | None = None
 
 
 @dataclass
@@ -247,7 +245,12 @@ def snapshot_from_dict(payload: dict) -> ItinerarySnapshot:
             day=d["day"],
             seichi=[Seichi(**s) for s in d["seichi"]],
             legs=[TransitLeg(**leg) for leg in d.get("legs", [])],
-            checks=[StopCheck(**c) for c in d.get("checks", [])],
+            # 只取当前字段：旧快照的 checks 可能带已下线的开放时间字段
+            # （open/note），宽容丢弃而不是 TypeError
+            checks=[
+                StopCheck(seichi_id=c["seichi_id"], arrive_time=c["arrive_time"])
+                for c in d.get("checks", [])
+            ],
             narrations=[Narration.from_dict(n) for n in d.get("narrations", [])],
         )
         for d in payload["days"]

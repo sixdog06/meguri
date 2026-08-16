@@ -129,7 +129,8 @@ function onPickTopic(id: string) {
 
 <style scoped>
 .dock {
-  height: 100%;
+  /* 不写 height：作为 .dock-win 的 flex 子项靠 stretch 拿高度（含 max-height 封顶），
+     写死 height:100% 会让计算值非 auto、stretch 失效，内容超高时滚动链断掉 */
   box-sizing: border-box;
   position: relative; /* 历史下拉浮层的定位锚 */
   background: rgb(251 250 245 / 0.96);
@@ -297,6 +298,7 @@ function onPickTopic(id: string) {
 }
 .messages li {
   display: flex;
+  flex-shrink: 0; /* 超高时内容必须溢出（出滚动条），而不是被压缩 */
 }
 .messages .user {
   justify-content: flex-end;

@@ -52,11 +52,11 @@ def test_navigator_rules_能识别坏校验():
                 "day": 1,
                 "seichi": [{"id": "a"}, {"id": "b"}],
                 "legs": [],
-                "checks": [{"seichi_id": "a", "arrive_time": "10:00", "open": None, "note": None},
-                           {"seichi_id": "b", "arrive_time": "09:00", "open": None, "note": None}],
+                "checks": [{"seichi_id": "a", "arrive_time": "10:00"},
+                           {"seichi_id": "b", "arrive_time": "09:00"}],
             }
         ],
     }
-    rules = navigator_rules(bad_itinerary, expect_closed_ids=[])
+    rules = navigator_rules(bad_itinerary)
     assert rules["times_monotonic_within_day"] is False
     assert rules["checks_for_every_stop"] is True

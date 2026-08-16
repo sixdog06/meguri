@@ -8,12 +8,11 @@ import json
 
 from fastapi.testclient import TestClient
 
-from app.adapters.fakes import FakeLLMGateway, FakeOpeningHours, FakeSeichiRepository, FakeTransitClient
+from app.adapters.fakes import FakeLLMGateway, FakeSeichiRepository, FakeTransitClient
 from app.adapters.ports import CorpusChunk, Seichi
 from app.adapters.providers import (
     get_corpus_store,
     get_llm_gateway,
-    get_opening_hours_source,
     get_seichi_repository,
     get_transit_client,
 )
@@ -64,7 +63,6 @@ def make_client(
     app.dependency_overrides[get_llm_gateway] = lambda: FakeLLMGateway(scripted=list(PLAN_SCRIPT))
     app.dependency_overrides[get_seichi_repository] = lambda: repo or FakeSeichiRepository(seichi=FIXTURE)
     app.dependency_overrides[get_transit_client] = lambda: transit or FakeTransitClient()
-    app.dependency_overrides[get_opening_hours_source] = lambda: FakeOpeningHours()
     app.dependency_overrides[get_corpus_store] = lambda: InMemoryCorpusStore(chunks=CHUNKS)
     return TestClient(app)
 

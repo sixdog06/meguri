@@ -9,15 +9,12 @@
    数据源时按耗时矩阵（duration_matrix，可选端口方法）重排天内站点，
    替代直线距离最近邻——编辑流程不调用，用户手动顺序优先。
 3. 时刻推算：每天 09:00 出发、每站停留 VISIT_MINUTES，推算各站计划到达时间。
-4. 开放时间校验：经 OpeningHoursSource（OSM opening_hours）判断到达时刻
-   是否开放，闭馆 → StopCheck(open=False, note)；未知 → open=None 不误标。
 """
 
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
-from app.adapters.ports import OpeningHoursSource, Seichi, TransitClient
-from app.agents.opening_hours import is_open
+from app.adapters.ports import Seichi, TransitClient
 from app.agents.planner import (
     ItinerarySnapshot,
     Progress,
@@ -45,7 +42,6 @@ def _leg_endpoint(
 def validate_itinerary(
     snapshot: ItinerarySnapshot,
     transit: TransitClient | None = None,
-    hours: OpeningHoursSource | None = None,
     *,
     day_date: date | None = None,
     progress: Progress | None = None,
@@ -55,31 +51,16 @@ def validate_itinerary(
     at_date = day_date or date.today()
     emit("校验中")
     seichi_by_id = {str(s.id): s for d in snapshot.days for s in d.seichi}
-    # Overpass 批量预取（一次请求拿全行程的开放时间；无此方法的 fake 跳过）
-    if hours is not None:
-        prefetch = getattr(hours, "prefetch", None)
-        if prefetch is not None:
-            prefetch([(s.lat, s.lng) for d in snapshot.days for s in d.seichi])
 
     for day in snapshot.days:
         clock = datetime.combine(at_date, DAY_START)
         intra_legs = [leg for leg in day.legs if not leg.cross_day]
         for i, stop in enumerate(day.seichi):
-            # --- 开放时间校验 ---
-            open_state: bool | None = None
-            note = None
-            if hours is not None:
-                oh = hours.opening_hours(stop.lat, stop.lng)
-                if oh:
-                    open_state = is_open(oh, clock.time(), clock.weekday())
-                    if open_state is False:
-                        note = f"到达时可能不在开放时间（{oh}）"
+            # --- 时刻推算：记录计划到达时间 ---
             day.checks.append(
                 StopCheck(
                     seichi_id=str(stop.id),
                     arrive_time=clock.strftime("%H:%M"),
-                    open=open_state,
-                    note=note,
                 )
             )
             # --- 交通段真实化 + 时刻推进 ---
@@ -104,8 +85,8 @@ def optimize_day_orders(
 ) -> ItinerarySnapshot:
     """天内顺序优化（仅初始规划流程调用；编辑流程保留用户手动顺序，不调用本函数）。
 
-    经 TransitClient.duration_matrix（可选端口方法，无此方法的 fake → 整体跳过，
-    与 OpeningHoursSource.prefetch 同一约定）拿真实公交+步行耗时矩阵，替代直线
+    经 TransitClient.duration_matrix（可选端口方法，无此方法的 fake → 整体跳过）
+    拿真实公交+步行耗时矩阵，替代直线
     距离做多起点最近邻 + 2-opt 重排；矩阵缺项回退距离估算，整天矩阵 None
     （全部查询失败）保持原顺序。重排后重建交通段（估算段，由
     validate_itinerary 随后替换为真实段）。

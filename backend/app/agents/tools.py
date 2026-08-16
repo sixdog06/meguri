@@ -12,7 +12,6 @@ from app.adapters.anitabi import NoSeichiData
 from app.adapters.ports import (
     CorpusStore,
     LLMGateway,
-    OpeningHoursSource,
     Seichi,
     SeichiRepository,
     TransitClient,
@@ -100,13 +99,11 @@ class PlanItineraryTool:
         self,
         repository: SeichiRepository,
         transit: TransitClient | None = None,
-        hours: OpeningHoursSource | None = None,
         corpus: CorpusStore | None = None,
         llm: LLMGateway | None = None,
     ) -> None:
         self._repository = repository
         self._transit = transit
-        self._hours = hours
         self._corpus = corpus
         self._llm = llm  # 提供时 Storyteller 走生成式讲解（真实模型）
         self.structured: dict[str, Any] | None = None
@@ -154,7 +151,6 @@ class PlanItineraryTool:
         finalize_snapshot(
             snapshot,
             transit=self._transit,
-            hours=self._hours,
             corpus=self._corpus,
             progress=self._progress,
             llm=self._llm,
