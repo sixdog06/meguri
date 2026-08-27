@@ -21,6 +21,13 @@ def _bad_request() -> openai.BadRequestError:
     )
 
 
+def _auth_error() -> openai.AuthenticationError:
+    request = httpx.Request("POST", "https://api.kimi.com/coding/v1/chat/completions")
+    return openai.AuthenticationError(
+        "invalid api key", response=httpx.Response(401, request=request), body=None
+    )
+
+
 class _FailingChat:
     def __init__(self, error_factory, results=None, fail_times=0):
         self._error_factory = error_factory
@@ -67,14 +74,25 @@ def test_重试中途成功则正常返回(monkeypatch):
     assert chat.calls == 2
 
 
-def test_4xx不重试(monkeypatch):
+def test_4xx不重试_包装为LLMUnavailable(monkeypatch):
     chat = _FailingChat(_bad_request)
     gateway = make_gateway(chat, monkeypatch)
 
-    with pytest.raises(openai.BadRequestError):
+    with pytest.raises(LLMUnavailableError):
         gateway.complete([{"role": "user", "content": "hi"}])
 
     assert chat.calls == 1  # 4xx 是请求问题，重试无意义
+
+
+def test_认证错误包装为LLMUnavailable且注明非连接故障(monkeypatch):
+    """key 失效等 4xx 穿透会炸 500——包装成 LLMUnavailableError 复用 503 路径。"""
+    chat = _FailingChat(_auth_error)
+    gateway = make_gateway(chat, monkeypatch)
+
+    with pytest.raises(LLMUnavailableError, match="AuthenticationError"):
+        gateway.complete([{"role": "user", "content": "hi"}])
+
+    assert chat.calls == 1
 
 
 # --- HTTP 缝：重试仍失败 → 503 + 友好 detail + 无脏数据 ---

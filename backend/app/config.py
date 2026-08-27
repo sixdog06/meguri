@@ -29,7 +29,8 @@ class Settings(BaseSettings):
     transit_mode: Literal["fake", "live"] = "fake"
     otp_base_url: str = "http://localhost:8081/otp"
     # RAG 语料库（#8）：live = pgvector（同库 corpus_chunks 表）+ embedding
-    # （无 openai_api_key 时用确定性哈希向量——检索链路真实、向量 fake）。
+    # （有 openai_api_key 用 OpenAI 兼容真向量，无 key 用确定性哈希向量——
+    # 检索链路真实、向量 fake）。
     corpus_mode: Literal["fake", "live"] = "fake"
     openai_api_key: str | None = None
     openai_base_url: str = "https://api.openai.com/v1"

@@ -10,8 +10,11 @@ import json
 from fastapi.testclient import TestClient
 
 from app.adapters.fakes import FakeLLMGateway, FakeSeichiRepository
+from app.adapters.llm import LLMUnavailableError
 from app.adapters.ports import CorpusChunk, Seichi
 from app.adapters.providers import get_corpus_store, get_llm_gateway, get_seichi_repository
+from app.agents.planner import ItineraryDay, ItinerarySnapshot
+from app.agents.storyteller import narrate_itinerary
 from app.main import app
 from app.rag.store import InMemoryCorpusStore
 
@@ -146,3 +149,24 @@ def test_语料为空时不编造讲解():
     assert itinerary["day_count"] == 3  # 行程本身正常（不依赖语料）
     narrations = [n for d in itinerary["days"] for n in d["narrations"]]
     assert narrations == [] or all(n["citation"] is None for n in narrations)
+
+
+def test_生成式讲解LLM故障时回退检索式摘录():
+    """live 网关抛 LLMUnavailableError（连接重试失败/4xx 包装）不炸消息：
+    回退 top-1 语料摘录，citation 照常给。"""
+    class FailingLLM:
+        def complete(self, messages, on_chunk=None):
+            raise LLMUnavailableError("connection error")
+
+    snapshot = ItinerarySnapshot(
+        day_count=1,
+        days=[ItineraryDay(day=1, seichi=[FIXTURE[0]])],  # a1 宇治桥
+        work=WORK,
+        area=AREA,
+    )
+
+    narrate_itinerary(snapshot, InMemoryCorpusStore(chunks=CHUNKS), llm=FailingLLM())
+
+    narration = snapshot.days[0].narrations[0]
+    assert narration.text.startswith(CHUNKS[0].text[:20])  # top-1 语料原文摘录
+    assert narration.citation.chunk_id == CHUNKS[0].id

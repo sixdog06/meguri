@@ -4,8 +4,9 @@ base_url / api_key / model 来自 settings（.env.local 注入，勿入库）。
 不进 pytest（无网/key 依赖）；离线测试用 FakeLLMGateway。
 
 故障语义：连接类错误（APIConnectionError/APITimeoutError）有限重试
-（指数退避）；4xx 不重试。重试仍失败抛 LLMUnavailableError——
-Orchestrator/API 层映射为 503，不炸 500。
+（指数退避），重试仍失败抛 LLMUnavailableError；4xx（认证/请求错误，
+如 AuthenticationError/BadRequestError）不重试，直接包装成
+LLMUnavailableError——Orchestrator/API 层映射为 503，不炸 500。
 """
 
 import time
@@ -13,11 +14,21 @@ from typing import Any, Callable
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from openai import APIConnectionError, APITimeoutError
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    AuthenticationError,
+    BadRequestError,
+    NotFoundError,
+    PermissionDeniedError,
+)
+
+# 4xx 客户端错误：key 失效/请求非法，重试无意义——包装成统一故障语义走 503
+_CLIENT_ERRORS = (AuthenticationError, PermissionDeniedError, BadRequestError, NotFoundError)
 
 
 class LLMUnavailableError(Exception):
-    """LLM 服务连接失败（重试后仍不可达）——API 层映射 503。"""
+    """LLM 服务不可用（连接失败重试后仍不可达，或 4xx 认证/请求错误）——API 层映射 503。"""
 
 
 class LangChainLLMGateway:
@@ -51,7 +62,8 @@ class LangChainLLMGateway:
         """调 chat 模型返回文本；on_chunk 非空时走 .stream() 逐段回调（真流式）。
 
         连接类错误重试后抛 LLMUnavailableError；流已开始（已有 chunk 上屏）
-        后出错不重试（避免重复推送），直接抛。
+        后出错不重试（避免重复推送），直接抛。4xx 认证/请求错误不重试，
+        同样包装成 LLMUnavailableError。
         """
         converted = [self._convert(m) for m in messages]
         last_error: Exception | None = None
@@ -70,6 +82,11 @@ class LangChainLLMGateway:
                     parts.append(text)
                     on_chunk(text)
                 return "".join(parts)
+            except _CLIENT_ERRORS as exc:
+                # 4xx 是认证/请求问题而非连接故障，重试无意义——直接包装
+                raise LLMUnavailableError(
+                    f"LLM 请求被拒绝（{type(exc).__name__}）: {exc}"
+                ) from exc
             except (APIConnectionError, APITimeoutError) as exc:
                 if streamed_any:  # 已有增量上屏，重试会重复推送——直接失败
                     raise LLMUnavailableError(str(exc)) from exc

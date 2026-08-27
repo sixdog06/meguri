@@ -137,8 +137,8 @@ def _resolve_leg(
         leg.degraded = True
         leg.note = f"交通查询失败（{exc.__class__.__name__}），已保留距离估算"
         return
-    if result.get("estimate"):
-        return  # 没有真实数据（fake）→ 静默保留估算
+    if result is None or result.get("estimate"):
+        return  # 熔断打开（OTP 故障）/没有真实数据（fake）→ 静默保留估算
     leg.mode = str(result["mode"])
     leg.duration_minutes = int(result["duration_minutes"])
     leg.fare_yen = result.get("fare_yen")

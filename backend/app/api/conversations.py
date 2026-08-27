@@ -330,7 +330,12 @@ def edit_itinerary(
 
     candidates = []
     if body.type == "add":
-        candidates = repository.search_seichi(snapshot.work or "", snapshot.area or "")
+        try:
+            candidates = repository.search_seichi(snapshot.work or "", snapshot.area or "")
+        except SeichiSourceUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from None
+        except NoSeichiData:
+            candidates = []  # 该作品无巡礼数据 ≠ 故障：add 会因找不到 id 走 404
     try:
         apply_edit(snapshot, body, candidates)
     except UnknownSeichiError as e:

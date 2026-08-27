@@ -17,12 +17,13 @@ from app.adapters.llm import LangChainLLMGateway
 from app.adapters.otp import OTPTransitClient
 from app.adapters.ports import (
     CorpusStore,
+    EmbeddingProvider,
     LLMGateway,
     SeichiRepository,
     TransitClient,
 )
 from app.config import get_settings
-from app.rag.embedding import HashEmbeddingProvider
+from app.rag.embedding import HashEmbeddingProvider, OpenAIEmbeddingProvider
 from app.rag.store import InMemoryCorpusStore, PgVectorCorpusStore
 
 
@@ -78,10 +79,18 @@ def get_corpus_store() -> CorpusStore:
     """RAG 统一检索接口（#8）：live = pgvector + embedding；fake = 内存。"""
     settings = get_settings()
     if settings.corpus_mode == "live":
-        # embedding：OpenAI 兼容 provider 还是 stub（ADR-0002 待 LangChain
-        # 落地），此前一律用确定性哈希向量——检索基础设施（pgvector/余弦/
-        # top-k）真实，向量是 fake；chat key 只用于 LLM 网关，与这里无关。
-        embedder = HashEmbeddingProvider(dim=settings.embedding_dim)
+        # embedding：有 openai_api_key 用 OpenAI 兼容真向量（dimensions 对齐
+        # embedding_dim，维度不符/调用失败明确报错，不降级）；无 key 用确定性
+        # 哈希向量——检索基础设施（pgvector/余弦/top-k）真实，向量是 fake。
+        if settings.openai_api_key:
+            embedder: EmbeddingProvider = OpenAIEmbeddingProvider(
+                base_url=settings.openai_base_url,
+                api_key=settings.openai_api_key,
+                model=settings.embedding_model,
+                dim=settings.embedding_dim,
+            )
+        else:
+            embedder = HashEmbeddingProvider(dim=settings.embedding_dim)
         from app.db import _get_engine
 
         return PgVectorCorpusStore(_get_engine(), embedder)

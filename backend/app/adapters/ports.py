@@ -74,7 +74,8 @@ class TransitClient(Protocol):
 
     返回 dict 契约：{"mode", "duration_minutes", "fare_yen", "estimate"}——
     estimate=True 表示"没有真实数据"（fake/降级），调用方保留原估算段；
-    estimate=False 表示真实查询结果，替换估算段。异常上抛由调用方降级。
+    estimate=False 表示真实查询结果，替换估算段。异常上抛由调用方降级；
+    返回 None 表示熔断打开（OTP 故障 TTL 内不再打网），同样保留估算段。
     """
 
     def route(
@@ -83,7 +84,7 @@ class TransitClient(Protocol):
         destination: tuple[float, float],
         *,
         depart_at: datetime | None = None,
-    ) -> dict[str, Any]: ...
+    ) -> dict[str, Any] | None: ...
 
 
 @dataclass

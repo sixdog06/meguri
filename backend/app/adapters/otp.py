@@ -14,6 +14,7 @@
 由 Navigator 统一转成 degraded 估算段。
 """
 
+import time
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -57,6 +58,38 @@ class NoRouteError(Exception):
 # EventBus 一致；多实例部署需换外部缓存）。键含端点，测试互不污染。
 _ROUTE_CACHE: dict[tuple[str, tuple[float, float], tuple[float, float]], dict[str, Any]] = {}
 
+# 进程级熔断：OTP 容器在但 graph 未加载完（或半死）时，每次查询都要吃满
+# 超时——n 站点矩阵 n²−n 次逐对请求可卡 30+ 分钟，且每个用户请求重踩一遍。
+# 连续失败 _BREAKER_THRESHOLD 次后打开熔断，TTL 内 route()/duration_matrix()
+# 直接返回 None（Navigator 降级为估算段/保持原顺序）；TTL 过后半开试探，
+# 成功复位计数、失败重新打开。失败 = 请求异常/超时/非 200/GraphQL 错误
+# （NoRouteError 是覆盖范围的确定答案，不算故障）。
+# 模块级、进程内共享（与 _ROUTE_CACHE 同语义；多实例部署需换外部状态）。
+_BREAKER_THRESHOLD = 3
+_BREAKER_TTL_SECONDS = 60.0
+_breaker_failures = 0
+_breaker_open_until = 0.0
+
+
+def _breaker_open() -> bool:
+    """熔断是否处于打开的 TTL 内（TTL 过后放行半开试探）。"""
+    return time.monotonic() < _breaker_open_until
+
+
+def _record_breaker_failure() -> None:
+    """记一次失败：连续失败达阈值则打开熔断 TTL。"""
+    global _breaker_failures, _breaker_open_until
+    _breaker_failures += 1
+    if _breaker_failures >= _BREAKER_THRESHOLD:
+        _breaker_open_until = time.monotonic() + _BREAKER_TTL_SECONDS
+
+
+def _record_breaker_success() -> None:
+    """请求成功（含半开试探）：复位失败计数与熔断。"""
+    global _breaker_failures, _breaker_open_until
+    _breaker_failures = 0
+    _breaker_open_until = 0.0
+
 
 def _fare_yen(itinerary: dict[str, Any]) -> int | None:
     """各 leg 的 fareProducts 价格（JPY）求和；无任何票价数据返回 None。"""
@@ -94,33 +127,41 @@ class OTPTransitClient:
         destination: tuple[float, float],
         *,
         depart_at: datetime | None = None,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | None:
         """点间路线查询：返回真实路网/换乘结果（见端口契约）；空路线/异常上抛。
 
         长距离纯步行（GTFS 未覆盖）结果附带 degraded/note 降级提示。
 
         结果按（端点, 起, 讫）进程内缓存（短时内墙钟差异不影响规划语义）。
+        熔断打开的 TTL 内直接返回 None（不打网，调用方降级为估算段）。
         """
         key = (self._endpoint, origin, destination)
         if key in _ROUTE_CACHE:
             return dict(_ROUTE_CACHE[key])
+        if _breaker_open():
+            return None  # 熔断 TTL 内不重踩故障（见模块级注释）
         at = depart_at or datetime.now(_TOKYO)
-        response = self._client.post(
-            self._endpoint,
-            json={
-                "query": _QUERY,
-                "variables": {
-                    "fromPlace": f"{origin[0]},{origin[1]}",
-                    "toPlace": f"{destination[0]},{destination[1]}",
-                    "date": at.strftime("%Y-%m-%d"),
-                    "time": at.strftime("%H:%M"),
+        try:
+            response = self._client.post(
+                self._endpoint,
+                json={
+                    "query": _QUERY,
+                    "variables": {
+                        "fromPlace": f"{origin[0]},{origin[1]}",
+                        "toPlace": f"{destination[0]},{destination[1]}",
+                        "date": at.strftime("%Y-%m-%d"),
+                        "time": at.strftime("%H:%M"),
+                    },
                 },
-            },
-        )
-        response.raise_for_status()
-        payload = response.json()
-        if payload.get("errors"):
-            raise ValueError(f"OTP GraphQL 错误: {payload['errors'][0].get('message')}")
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if payload.get("errors"):
+                raise ValueError(f"OTP GraphQL 错误: {payload['errors'][0].get('message')}")
+        except (httpx.HTTPError, ValueError):
+            _record_breaker_failure()
+            raise
+        _record_breaker_success()
         itineraries = (payload.get("data") or {}).get("plan", {}).get("itineraries") or []
         if not itineraries:
             raise NoRouteError("该区域不在交通图覆盖范围内")
@@ -153,7 +194,10 @@ class OTPTransitClient:
 
         失败/estimate 的条目为 None（调用方回退距离估算）；全部失败返回 None
         （调用方保持原顺序）。供 Navigator 的天内顺序优化用。
+        熔断打开时整个矩阵立即返回 None，不逐对空转。
         """
+        if _breaker_open():
+            return None  # 熔断 TTL 内不重踩故障（见模块级注释）
         n = len(points)
         matrix: list[list[int | None]] = [[None] * n for _ in range(n)]
         got_real = False
@@ -165,6 +209,8 @@ class OTPTransitClient:
                     result = self.route(points[i], points[j], depart_at=depart_at)
                 except Exception:  # 单对失败不拖累全矩阵：留 None 由调用方回退
                     continue
+                if result is None:
+                    return None  # 循环中途熔断打开：不再逐对空转
                 if result.get("estimate"):
                     continue
                 matrix[i][j] = int(result["duration_minutes"])

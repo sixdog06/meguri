@@ -15,6 +15,7 @@ import httpx
 from openai import APIError
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.adapters.llm import LLMUnavailableError
 from app.adapters.ports import CorpusStore, LLMGateway
 from app.agents.planner import ItinerarySnapshot, Progress
 
@@ -81,7 +82,7 @@ def _generate(
                 },
             ]
         )
-    except (httpx.HTTPError, APIError) as exc:
+    except (httpx.HTTPError, APIError, LLMUnavailableError) as exc:
         # 预期的 LLM/网络错误：回退检索式拼装；编程错误照常抛出
         logger.warning("生成式讲解失败，回退摘录拼装: %s: %s", type(exc).__name__, exc)
         return _excerpt(chunks[0].text)

@@ -2,13 +2,16 @@
 
 - HashEmbeddingProvider：确定性哈希向量（token 桶哈希 + L2 归一化）。
   无真实 embedding key 时的开发/测试 fake——共享 token 的文本余弦相近，
-  足够驱动 pgvector 检索全链路。真实 embedding（OpenAI 兼容）随 LangChain
-  适配层接入落地（ADR-0002），落地前一律用哈希向量。
+  足够驱动 pgvector 检索全链路。
+- OpenAIEmbeddingProvider：OpenAI 兼容 embeddings 接口的 live 实现
+  （ADR-0002），配 MEGURI_OPENAI_API_KEY 后由 wiring 自动选用。
 """
 
 import hashlib
 import math
 import re
+
+from openai import OpenAI, OpenAIError
 
 EMBEDDING_DIM = 64  # 默认值；实际维度以 settings.embedding_dim 为准（改维度需重建 corpus 表）
 
@@ -69,3 +72,66 @@ class HashEmbeddingProvider:
             vector[bucket] += 1.0
         norm = math.sqrt(sum(v * v for v in vector)) or 1.0
         return [v / norm for v in vector]
+
+
+class EmbeddingUnavailableError(Exception):
+    """embedding 服务调用失败（网络/4xx）——明确上抛，不静默降级哈希向量。"""
+
+
+class EmbeddingDimensionError(Exception):
+    """API 返回维度与 MEGURI_EMBEDDING_DIM 不符——需调整配置并重建语料。"""
+
+
+class OpenAIEmbeddingProvider:
+    """OpenAI 兼容 embeddings 接口的 live 实现（经 openai SDK，同 LLM 网关）。
+
+    请求按 dim 传 dimensions 参数（text-embedding-3 系支持服务端降维），
+    让真向量直接对齐 corpus_chunks 的 Vector 列。维度是硬约束：API 不支持
+    dimensions（4xx 报错上抛 EmbeddingUnavailableError）或忽略该参数返回
+    全维度（抛 EmbeddingDimensionError），都不静默截断——截断会毁掉向量
+    空间语义，宁可明确失败。
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        model: str,
+        dim: int = EMBEDDING_DIM,
+        *,
+        client: OpenAI | None = None,  # 测试注入假客户端，不触网
+        timeout: float = 30.0,
+    ) -> None:
+        self._model = model
+        self._dim = dim
+        self._client = client or OpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        """EmbeddingProvider 契约：逐文本返回 dim 维向量（顺序与输入一致）。"""
+        if not texts:
+            return []
+        try:
+            response = self._client.embeddings.create(
+                model=self._model, input=texts, dimensions=self._dim
+            )
+        except OpenAIError as exc:
+            raise EmbeddingUnavailableError(
+                f"embedding 请求失败（model={self._model}）：{exc}"
+            ) from exc
+        # 按 index 归位（响应顺序不保证与输入一致）
+        vectors: list[list[float] | None] = [None] * len(texts)
+        for item in response.data:
+            vectors[item.index] = [float(v) for v in item.embedding]
+        result: list[list[float]] = []
+        for vector in vectors:
+            if vector is None:
+                raise EmbeddingUnavailableError("embedding 响应条目数与输入不符")
+            if len(vector) != self._dim:
+                raise EmbeddingDimensionError(
+                    f"embedding 返回维度 {len(vector)} 与 MEGURI_EMBEDDING_DIM={self._dim} "
+                    f"不符（model={self._model} 可能不支持 dimensions 参数）：请把 "
+                    "MEGURI_EMBEDDING_DIM 调整为该模型维度并重建语料"
+                    "（DROP TABLE corpus_chunks + 重新灌库）"
+                )
+            result.append(vector)
+        return result

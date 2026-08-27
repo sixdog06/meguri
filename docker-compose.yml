@@ -16,8 +16,12 @@ services:
       retries: 10
 
   backend:
-    build: ./backend
-    env_file: .env.local  # LLM key（MEGURI_OPENAI_*），勿写进本文件
+    build:
+      context: .            # 仓库根：镜像需要 data/（作品映射 + 离线数据包）
+      dockerfile: backend/Dockerfile
+    env_file:
+      - path: .env.local    # LLM key（MEGURI_OPENAI_*），勿写进本文件
+        required: false     # 新克隆未配 key 也能起栈（缺 key 时 LLM 调用才报错）
     environment:
       MEGURI_DATABASE_URL: postgresql+psycopg://meguri:meguri@db:5432/meguri
       MEGURI_ADAPTER_MODE: live

@@ -8,6 +8,7 @@ import json
 
 from fastapi.testclient import TestClient
 
+from app.adapters.anitabi import SeichiSourceUnavailable
 from app.adapters.fakes import FakeLLMGateway, FakeSeichiRepository, FakeTransitClient
 from app.adapters.ports import CorpusChunk, Seichi
 from app.adapters.providers import (
@@ -197,6 +198,25 @@ def test_非法编辑_不存在的圣地():
 
     edit(client, cid, {"type": "remove", "seichi_id": "nobody"}, expect=404)
     edit(client, cid, {"type": "add", "day": 1, "seichi_id": "nobody"}, expect=404)
+
+
+def test_编辑add时圣地源故障返回503():
+    """anitabi 不可达不炸 500：对齐候选端点，映射 503 友好提示。"""
+    client = make_client()
+    cid, _ = plan(client)
+
+    class FailingRepo:
+        def search_seichi(self, work, area):
+            raise SeichiSourceUnavailable("圣地数据服务暂时不可用，请稍后重试")
+
+    app.dependency_overrides[get_seichi_repository] = lambda: FailingRepo()
+
+    response = client.post(
+        f"/api/conversations/{cid}/itinerary/edits",
+        json={"type": "add", "day": 1, "seichi_id": "x1"},
+    )
+    assert response.status_code == 503
+    assert "圣地数据服务" in response.json()["detail"]
 
 
 def test_非法编辑_不存在的天与改序参数():
