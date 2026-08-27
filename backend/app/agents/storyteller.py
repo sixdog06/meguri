@@ -4,7 +4,8 @@
 - 检索式拼装（fake/默认）：top-1 语料原文片段 + citation 模板化；
 - 生成式（接入真实 LLM 后）：检索 chunks 作为上下文，让 LLM 写一段
   ≤100 字讲解；citation 仍取检索 top-1（确定性，不由模型编造）。
-零幻觉底线：检索不到语料就不产出讲解（两种模式一致）。LLM 调用失败
+零幻觉底线：检索不到语料就不产出讲解（两种模式一致）；检索限定在当前
+作品的语料内（跨作品"同名地点"的语料不算数）。LLM 调用失败
 回退检索式拼装（记日志）。
 """
 
@@ -115,8 +116,14 @@ def narrate_itinerary(
                 day.narrations.append(existing[seichi_id])
                 continue
             query = f"{snapshot.work or ''} {stop.name}".strip()
+            # work 过滤用站点自带的 work（数据包/anitabi 权威名）而非用户查询词
+            # （snapshot.work）：灌库语料的 work 也取自同一来源，两边天然一致；
+            # 用户查询词可能和数据包名不同（"轻音少女第二季" vs "轻音少女 二期"）
+            work_filter = stop.work or snapshot.work or None
             try:
-                chunks = corpus.search(query, k=_GENERATIVE_MAX_CHUNKS if llm else 1)
+                chunks = corpus.search(
+                    query, k=_GENERATIVE_MAX_CHUNKS if llm else 1, work=work_filter
+                )
             except (
                 SQLAlchemyError,
                 httpx.HTTPError,

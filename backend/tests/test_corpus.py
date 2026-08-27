@@ -62,6 +62,27 @@ def test_pgvector_upsert幂等(store):
     assert "更新后" in results[0].text  # 重复灌库覆盖而非重复插入
 
 
+def test_pgvector检索_按作品过滤防跨作品错配(store):
+    """跨作品污染防线：轻音的站不许配京吹的语料（真实事故：河原町通）。"""
+    results = store.search("宇治桥 久美子", k=3, work="轻音少女")
+    assert [c.id for c in results] == ["c3"] or not results  # 只有轻音语料可见
+    assert all(c.work == "轻音少女" for c in results)
+
+    results = store.search("宇治桥 久美子", k=3, work="吹响吧！上低音号")
+    assert results and all(c.work == "吹响吧！上低音号" for c in results)
+
+
+def test_内存版_按作品过滤语义一致():
+    """fake 与 live 语义不分叉：同一 work 过滤在 InMemoryCorpusStore 上也成立。"""
+    from app.rag.store import InMemoryCorpusStore
+
+    store = InMemoryCorpusStore(chunks=list(CORPUS))
+    results = store.search("宇治桥 久美子", k=3, work="轻音少女")
+
+    assert all(c.work == "轻音少女" for c in results)
+    assert not any(c.id in {"c1", "c2"} for c in results)  # 京吹语料不可见
+
+
 # --- ingestion 解析（真实响应形状的 fixture） ---
 
 BGM_SUBJECT_115908 = {

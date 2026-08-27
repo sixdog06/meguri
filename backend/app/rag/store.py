@@ -38,13 +38,12 @@ class InMemoryCorpusStore:
             self._chunks[chunk.id] = chunk
             self._vectors[chunk.id] = vector
 
-    def search(self, query: str, k: int) -> list[CorpusChunk]:
-        """余弦相似度 top-k 检索；低于 min_score 阈值的一律不返回。"""
+    def search(self, query: str, k: int, work: str | None = None) -> list[CorpusChunk]:
+        """余弦相似度 top-k 检索；低于 min_score 阈值的一律不返回。
+        work 非空时只在该作品的语料里检索（防跨作品错配）。"""
         query_vector = self._embedder.embed([query])[0]
-        scored = [
-            (cosine_similarity(query_vector, self._vectors[cid]), self._chunks[cid])
-            for cid in self._chunks
-        ]
+        pool = [c for c in self._chunks.values() if work is None or c.work == work]
+        scored = [(cosine_similarity(query_vector, self._vectors[c.id]), c) for c in pool]
         scored = [item for item in scored if item[0] >= self._min_score]
         scored.sort(key=lambda item: (-item[0], item[1].id))
         return [c for _, c in scored[:k]]
@@ -82,20 +81,23 @@ class PgVectorCorpusStore:
                 )
             session.commit()
 
-    def search(self, query: str, k: int) -> list[CorpusChunk]:
-        """余弦距离 <=> 排序 top-k；超过 max_distance（= 1 - 阈值）不返回。"""
+    def search(self, query: str, k: int, work: str | None = None) -> list[CorpusChunk]:
+        """余弦距离 <=> 排序 top-k；超过 max_distance（= 1 - 阈值）不返回。
+        work 非空时只在该作品的语料里检索（防跨作品错配）。"""
         vector = self._embedder.embed([query])[0]
         # psycopg 会把 list[float] 绑成 float8[]（没有到 vector 的 cast），
         # 传文本字面量再 ::vector 转换，无需注册驱动适配器
         literal = "[" + ",".join(repr(v) for v in vector) + "]"
+        work_clause = " AND work = :work" if work is not None else ""
         with self._engine.connect() as conn:
             rows = conn.execute(
                 text(
                     "SELECT id, source, work, text FROM corpus_chunks"
                     " WHERE embedding <=> CAST(:vector AS vector) <= :max_distance"
+                    f"{work_clause}"
                     " ORDER BY embedding <=> CAST(:vector AS vector) LIMIT :k"
                 ),
-                {"vector": literal, "max_distance": self._max_distance, "k": k},
+                {"vector": literal, "max_distance": self._max_distance, "k": k, "work": work},
             ).all()
         return [
             CorpusChunk(id=row.id, source=row.source, work=row.work, text=row.text)

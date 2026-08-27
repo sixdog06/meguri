@@ -82,6 +82,11 @@ def test_storyteller_citation_fidelity_judge():
         scores = []
         for n in narrations:
             chunk = chunk_by_id[n["citation"]["chunk_id"]]
+            # 跨作品错配防线：citation 的语料必须属于当前行程的作品
+            # （真实事故：轻音行程引用了京吹"河原町通"语料——同名地点污染）
+            assert chunk["work"] == case["work"], (
+                f"跨作品错配：{n['seichi_id']} 引用了《{chunk['work']}》的语料"
+            )
             result = judge.judge(
                 "citation_fidelity", {"narration": n["text"], "chunk_text": chunk["text"]}
             )
