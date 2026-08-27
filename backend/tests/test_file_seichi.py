@@ -33,6 +33,17 @@ def test_find_work_未收录作品返回None():
     assert FileSeichiRepository(DATA_DIR).find_work("完全不存在的作品xyz") is None
 
 
+def test_find_work_多季作品具体季优先且忽略空白():
+    """别名索引按关键词顺序首个命中：具体季关键词必须排在总名之前，
+    否则总名截胡；查询词中的空白忽略（“轻音少女 剧场版”也能命中）。"""
+    repo = FileSeichiRepository(DATA_DIR)
+
+    assert repo.find_work("轻音少女 剧场版").subject_id == 12426
+    assert repo.find_work("轻音少女第二季").subject_id == 3774
+    assert repo.find_work("轻音少女2").subject_id == 3774
+    assert repo.find_work("轻音少女").subject_id == 1424  # 不带季词落回一期
+
+
 def test_find_work_空或纯空白输入返回None(tmp_path):
     """空查询包含于任何字符串，会误命中索引首条——必须直接 None。"""
     works = tmp_path / "anime-2000plus.json"

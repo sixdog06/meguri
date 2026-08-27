@@ -83,6 +83,30 @@ class AnitabiCrawler:
             return None
         return build_pack(subject_id, lite, points)
 
+    def localize_images(self, pack: dict[str, Any], images_dir: Path) -> int:
+        """把数据包里的远程对照截图下载到本地，并就地改写 image 字段为
+        本地 URL（/api/seichi-images/...，由后端静态挂载服务）。
+
+        幂等（已有文件跳过）；单张失败保留远程 URL 不拖垮整包。返回本地化张数。
+        """
+        subject_dir = images_dir / str(pack["subject_id"])
+        localized = 0
+        for point in pack["points"]:
+            url, point_id = point.get("image"), point.get("id")
+            if not url or not point_id:
+                continue
+            dest = subject_dir / f"{point_id}.jpg"
+            if not dest.exists():
+                try:
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_bytes(polite_call(lambda: self._api.fetch_image(url)))
+                except Exception as exc:
+                    print(f"  截图下载失败，保留远程 URL（{point_id}: {type(exc).__name__}）")
+                    continue
+            point["image"] = f"/api/seichi-images/{pack['subject_id']}/{dest.name}"
+            localized += 1
+        return localized
+
 
 def load_progress(path: Path) -> dict[str, Any]:
     """灌库进度（no_data 名单）；无文件视为无进度。"""
@@ -98,6 +122,7 @@ def main() -> None:
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
     parser.add_argument("--only", type=int, default=None, help="只拉某 subjectID")
     parser.add_argument("--force", action="store_true", help="无视已有文件与进度重拉")
+    parser.add_argument("--skip-images", action="store_true", help="不下载对照截图（image 保留远程 URL）")
     args = parser.parse_args()
 
     works = json.loads(args.works.read_text(encoding="utf-8"))
@@ -123,6 +148,9 @@ def main() -> None:
             no_data.add(subject_id)
             skipped += 1
             continue
+        if not args.skip_images:
+            n = crawler.localize_images(pack, args.out_dir / "images")
+            print(f"  截图本地化 {n}/{len(pack['points'])}")
         target.write_text(json.dumps(pack, ensure_ascii=False, indent=1), encoding="utf-8")
         done += 1
         print(f"{subject_id}: {pack['work']} {len(pack['points'])} 点")

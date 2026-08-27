@@ -10,6 +10,7 @@ from collections.abc import Callable
 from typing import TypeVar
 
 import httpx
+from curl_cffi.requests.exceptions import RequestException as CurlRequestException
 
 USER_AGENT = "meguri/0.1 (https://github.com/sixdog06/meguri)"
 REQUEST_INTERVAL = 0.6  # 秒；≤2 请求/秒
@@ -33,7 +34,9 @@ def polite_call(
         time.sleep(interval)
         try:
             return fn()
-        except (httpx.HTTPError, ValueError) as exc:
+        except (httpx.HTTPError, ValueError, CurlRequestException) as exc:
+            # curl_cffi 的异常体系独立于 httpx，anitabi 抓取链（含截图下载）
+            # 走 curl_cffi，不捕它则网络错误第一次失败就放弃该作品
             last_error = exc
             time.sleep(interval * (2**attempt))
     raise last_error  # type: ignore[misc]

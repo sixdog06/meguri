@@ -63,9 +63,14 @@ class FileSeichiRepository:
         return cached[1]
 
     def _match_subject(self, work: str) -> int | None:
-        """别名索引关键词匹配（如“京吹”）；未命中返回 None。"""
+        """别名索引关键词匹配（如“京吹”）；未命中返回 None。
+
+        比较前去掉查询词里的空白（“轻音少女 第二季”也能命中关键词
+        “轻音少女第二季”）。索引按关键词从长到短排序命中：多季作品的具体季
+        关键词必须排在总名之前，否则总名先命中截胡（dict 保序）。"""
+        compact = "".join(work.split())
         for keyword, subject_id in self._load_index().items():
-            if keyword in work:
+            if keyword in work or keyword in compact:
                 return subject_id
         return None
 
