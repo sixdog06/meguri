@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import L from 'leaflet'
-import 'leaflet/dist/leaflet.css'
-import markerIcon2xUrl from 'leaflet/dist/images/marker-icon-2x.png'
-import markerIconUrl from 'leaflet/dist/images/marker-icon.png'
-import markerShadowUrl from 'leaflet/dist/images/marker-shadow.png'
+import * as maplibregl from 'maplibre-gl'
+import 'maplibre-gl/dist/maplibre-gl.css'
+import type { Feature } from 'geojson'
 import type { Itinerary, SeichiCandidate } from '../types'
 import { dayColor } from '../types'
 import { pointUrl } from '../gmaps'
@@ -19,22 +17,14 @@ export interface MapFocus {
 
 const props = defineProps<{ seichi: SeichiCandidate[]; itinerary?: Itinerary | null; focus?: MapFocus | null }>()
 
-// vite 下 Leaflet 默认 marker 图标路径会丢，显式绑定打包后的资源
-L.Marker.prototype.options.icon = L.icon({
-  iconUrl: markerIconUrl,
-  iconRetinaUrl: markerIcon2xUrl,
-  shadowUrl: markerShadowUrl,
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41],
-})
-
 const mapEl = ref<HTMLDivElement | null>(null)
-let map: L.Map | null = null
-let markers: L.LayerGroup | null = null
+let map: maplibregl.Map | null = null
+// 样式加载完成后才能加 source/layer；此前的渲染在 load 后统一补一次
+let styleReady = false
 // 标点按圣地 id（无 id 用名称）索引，供面板点名后定位并打开弹窗
-const markerByKey = new Map<string, L.Marker>()
+const markerByKey = new Map<string, maplibregl.Marker>()
+
+const ROUTE_SOURCE = 'itinerary-route'
 
 function markerKey(s: SeichiCandidate): string {
   return String(s.id ?? s.name)
@@ -75,60 +65,119 @@ function popupHtml(s: SeichiCandidate): string {
   return parts.join('')
 }
 
-function renderMarkers() {
-  if (!map || !markers) return
-  markers.clearLayers()
+function clearMarkers() {
+  for (const marker of markerByKey.values()) marker.remove()
   markerByKey.clear()
-  const points: L.LatLngExpression[] = []
+}
+
+function addMarker(s: SeichiCandidate, color?: string) {
+  if (!map) return
+  const popup = new maplibregl.Popup({ maxWidth: '260px' }).setHTML(popupHtml(s))
+  const marker = new maplibregl.Marker(color ? { color } : {})
+    .setLngLat([s.lng, s.lat])
+    .setPopup(popup)
+    .addTo(map)
+  markerByKey.set(markerKey(s), marker)
+}
+
+function renderMarkers() {
+  if (!map) return
+  if (!styleReady) return // 样式未加载完，load 后会统一补一次渲染
+  clearMarkers()
+  const bounds = new maplibregl.LngLatBounds()
+  let hasPoints = false
+  const routeFeatures: Feature[] = []
   if (props.itinerary) {
-    // 行程视图：每天一条路线连线（按天区分颜色）+ 圣地标点
+    // 行程视图：每天一条路线连线（按天区分颜色）+ 同天色标点
     for (const day of props.itinerary.days) {
-      const dayPoints = day.seichi.map((s): L.LatLngExpression => [s.lat, s.lng])
+      const color = dayColor(day.day)
       for (const s of day.seichi) {
-        markerByKey.set(markerKey(s), L.marker([s.lat, s.lng]).bindPopup(popupHtml(s)).addTo(markers))
+        addMarker(s, color)
+        bounds.extend([s.lng, s.lat])
+        hasPoints = true
       }
-      if (dayPoints.length > 1) {
-        L.polyline(dayPoints, { color: dayColor(day.day), weight: 4, opacity: 0.8 }).addTo(markers)
+      if (day.seichi.length > 1) {
+        routeFeatures.push({
+          type: 'Feature',
+          properties: { color },
+          geometry: {
+            type: 'LineString',
+            coordinates: day.seichi.map((s) => [s.lng, s.lat]),
+          },
+        })
       }
-      points.push(...dayPoints)
     }
   } else {
     for (const s of props.seichi) {
-      markerByKey.set(markerKey(s), L.marker([s.lat, s.lng]).bindPopup(popupHtml(s)).addTo(markers))
-      points.push([s.lat, s.lng])
+      addMarker(s)
+      bounds.extend([s.lng, s.lat])
+      hasPoints = true
     }
   }
-  if (points.length > 0) {
-    map.fitBounds(L.latLngBounds(points), { padding: [30, 30], maxZoom: 15 })
+  const source = map.getSource(ROUTE_SOURCE) as maplibregl.GeoJSONSource | undefined
+  source?.setData({ type: 'FeatureCollection', features: routeFeatures })
+  if (hasPoints) {
+    map.fitBounds(bounds, { padding: 30, maxZoom: 15 })
   }
 }
 
 onMounted(() => {
   if (!mapEl.value) return
-  map = L.map(mapEl.value).setView([36.2, 138.25], 5) // 默认俯瞰日本列岛
-  // CARTO Positron 淡色瓦片：底图几乎无色，路线与标点是唯一视觉焦点
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-    attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-    maxZoom: 20,
-  }).addTo(map)
-  markers = L.layerGroup().addTo(map)
-  renderMarkers()
+  map = new maplibregl.Map({
+    container: mapEl.value,
+    // OpenFreeMap 矢量瓦片（OSM 数据）：免费免 key 无用量限制，可自托管。
+    // bright 彩色风格，路线与标点用 dayColor 叠加其上。备选：positron（浅灰极简）。
+    style: 'https://tiles.openfreemap.org/styles/bright',
+    center: [138.25, 36.2], // 默认俯瞰日本列岛
+    zoom: 4.5,
+    attributionControl: {
+      compact: true,
+      customAttribution:
+        '<a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
+    },
+  })
+  map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right')
+  map.on('load', () => {
+    if (!map) return
+    map.addSource(ROUTE_SOURCE, {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+    })
+    map.addLayer({
+      id: ROUTE_SOURCE,
+      type: 'line',
+      source: ROUTE_SOURCE,
+      paint: {
+        'line-color': ['get', 'color'],
+        'line-width': 4,
+        'line-opacity': 0.8,
+      },
+    })
+    styleReady = true
+    renderMarkers()
+  })
 })
 
-watch(() => [props.seichi, props.itinerary], renderMarkers)
+watch(
+  () => [props.seichi, props.itinerary],
+  () => renderMarkers(),
+)
 
 // 面板点名 → 飞到对应标点并打开弹窗（标点可能因行程重建尚未渲染，拿不到就只飞过去）
 watch(
   () => props.focus,
   (focus) => {
     if (!map || !focus) return
-    map.flyTo([focus.lat, focus.lng], Math.max(map.getZoom(), 15), { duration: 0.6 })
-    markerByKey.get(focus.id)?.openPopup()
+    map.flyTo({ center: [focus.lng, focus.lat], zoom: Math.max(map.getZoom(), 15), duration: 600 })
+    const marker = markerByKey.get(focus.id)
+    const popup = marker?.getPopup()
+    // togglePopup 会把已打开的弹窗关掉，重复点名同一标点时只开不关
+    if (marker && popup && !popup.isOpen()) marker.togglePopup()
   },
 )
 
 onBeforeUnmount(() => {
+  clearMarkers()
   map?.remove()
   map = null
 })
