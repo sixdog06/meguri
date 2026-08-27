@@ -124,6 +124,56 @@ def test_anitabi空结果_抛NoSeichiData(mapping):
         repo.search_seichi("京吹", "宇治")
 
 
+# --- anitabi 故障时的离线兜底（显式降级，绝不静默冒充实时数据） ---
+
+
+@pytest.fixture()
+def mapping_with_pack(mapping, tmp_path):
+    """映射夹具 + 京吹离线数据包（data/seichi/<id>.json 形态，供兜底路径）。"""
+    pack = {
+        "subject_id": 115908,
+        "work": "吹响吧！上低音号",
+        "city": "宇治市",
+        "points": [
+            {"id": "p1", "name": "宇治桥", "lat": 34.8929, "lng": 135.8065, "area": "宇治市"}
+        ],
+    }
+    (tmp_path / "115908.json").write_text(json.dumps(pack, ensure_ascii=False))
+    return mapping
+
+
+def test_anitabi故障_本地有数据时显式兜底(mapping_with_pack):
+    repo = AnitabiSeichiRepository(
+        mapping_with_pack, client=StubAnitabi(error=httpx.ConnectError("boom"))
+    )
+
+    results = repo.search_seichi("京吹", "宇治")
+
+    assert [s.name for s in results] == ["宇治桥"]  # 离线包数据照常返回
+    assert repo.fallback_notice is not None and "离线数据包" in repo.fallback_notice
+
+
+def test_anitabi故障_本地无数据仍503(mapping):
+    repo = AnitabiSeichiRepository(mapping, client=StubAnitabi(error=httpx.ConnectError("boom")))
+
+    with pytest.raises(SeichiSourceUnavailable):
+        repo.search_seichi("京吹", "宇治")
+    assert repo.fallback_notice is None  # 无兜底痕迹
+
+
+def test_工具层透传兜底notice(mapping_with_pack):
+    from app.agents.tools import SearchSeichiTool
+
+    repo = AnitabiSeichiRepository(
+        mapping_with_pack, client=StubAnitabi(error=httpx.ConnectError("boom"))
+    )
+    tool = SearchSeichiTool(repo)
+
+    tool.run({"work": "京吹", "area": "宇治"})
+
+    assert tool.notice is not None and "离线数据包" in tool.notice
+
+
 def test_anitabi零地标_也算无数据(mapping):
     empty = AnitabiWorkSeichi(work_name=WORK, city="宇治市", seichi=[])
     repo = AnitabiSeichiRepository(mapping, client=StubAnitabi(result=empty))

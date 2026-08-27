@@ -74,6 +74,10 @@ class SearchSeichiTool:
             self.structured = []
             self.notice = str(exc)
             return f"《{work}》没有圣地巡礼数据（不是检索失败，是该作品在 anitabi 无记录）"
+        # 离线兜底提示（约定通道）：live 源故障降级到本地数据包时如实告知用户
+        fallback = getattr(self._repository, "fallback_notice", None)
+        if fallback:
+            self.notice = fallback
         if not self.structured:
             return "没有找到符合条件的圣地"
         return json.dumps([asdict(s) for s in self.structured], ensure_ascii=False)
@@ -136,6 +140,10 @@ class PlanItineraryTool:
             self.notice = str(exc)
             self.structured = None
             return f"《{work}》没有圣地巡礼数据，无法规划行程（该作品在 anitabi 无记录，不是检索失败）"
+        # 离线兜底提示（约定通道）：live 源故障降级到本地数据包时如实告知用户
+        fallback = getattr(self._repository, "fallback_notice", None)
+        if fallback:
+            self.notice = fallback
         if not seichi:
             self.structured = None
             return "没有找到候选圣地，无法规划行程"

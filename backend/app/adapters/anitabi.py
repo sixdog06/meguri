@@ -155,6 +155,13 @@ class AnitabiClient:
             raise InvalidAnitabiResponse("anitabi points 返回非数组 JSON（疑似错误响应）")
         return data
 
+    def fetch_image(self, url: str) -> bytes:
+        """下载对照截图原始字节（image.anitabi.cn 同在 Cloudflare 后，需同一
+        TLS 伪装通道）；灌库本地化用，失败上抛由调用方决定跳过。"""
+        response = self._client.get(url)
+        response.raise_for_status()
+        return response.content
+
     def fetch_seichi(
         self, subject_id: int, work_fallback: str = ""
     ) -> AnitabiWorkSeichi | None:
@@ -198,12 +205,17 @@ class AnitabiSeichiRepository:
 
     组合本地映射存储（find_work 主路径，FileSeichiRepository）与
     AnitabiClient；两种显式结果见模块头（SeichiSourceUnavailable /
-    NoSeichiData）。
+    NoSeichiData）。anitabi 故障时若本地离线包有该作品数据则显式降级
+    （fallback_notice 告知用户是离线数据，可能不是最新），没有才 503——
+    可以降级，但绝不静默冒充实时数据。
     """
 
     def __init__(self, mapping: SeichiRepository, client: AnitabiClient | None = None) -> None:
         self._mapping = mapping
         self._client = client or AnitabiClient()
+        #: 最近一次检索发生离线兜底时的用户可见提示（约定通道，tools 层读取
+        #: 并进 notice）；无兜底保持 None。每次检索开头重置。
+        self.fallback_notice: str | None = None
 
     def find_work(self, work: str) -> WorkRef | None:
         """作品名 → WorkRef：只查本地 ID↔名字映射（运行时不调 Bangumi）。"""
@@ -212,15 +224,23 @@ class AnitabiSeichiRepository:
     def search_seichi(self, work: str, area: str) -> list[Seichi]:
         """本地映射解析 → anitabi 实时拉取，按地区过滤。
 
-        未收录的作品返回 []（普通空结果）；anitabi 故障抛
-        SeichiSourceUnavailable；anitabi 无该作品数据抛 NoSeichiData。
+        未收录的作品返回 []（普通空结果）；anitabi 无该作品数据抛
+        NoSeichiData；anitabi 故障时优先回退本地离线包（显式 notice），
+        离线包也没有才抛 SeichiSourceUnavailable。
         """
+        self.fallback_notice = None
         ref = self._mapping.find_work(work)
         if ref is None:
             return []
         try:
             result = self._client.fetch_seichi(ref.subject_id, work)
         except (httpx.HTTPError, RequestException) as exc:  # httpx（测试回放）与 curl_cffi（线上默认）两类网络错误
+            local = self._mapping.search_seichi(work, area)
+            if local:
+                self.fallback_notice = (
+                    "实时圣地数据服务不可用，当前展示的是离线数据包（可能不是最新）"
+                )
+                return local
             raise SeichiSourceUnavailable(
                 "圣地数据服务暂时不可用，请稍后重试"
             ) from exc
