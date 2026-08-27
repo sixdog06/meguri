@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from dataclasses import asdict
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -371,6 +371,7 @@ def get_messages(
 
 @router.get("/{conversation_id}/events")
 def stream_events(
+    request: Request,
     conversation_id: uuid.UUID = Depends(valid_conversation_id),
     bus: EventBus = Depends(get_event_bus),
     session: Session = Depends(get_session),
@@ -378,11 +379,16 @@ def stream_events(
     """SSE：订阅某会话的进度事件。
 
     收到 done 不关闭流——同一连接继续推后续回合的事件，由客户端断开；
-    SSE_IDLE_TIMEOUT 秒无事件则结束流（浏览器 EventSource 会自动重连，
-    回放最近的 backlog）。
+    SSE_IDLE_TIMEOUT 秒无事件则结束流（浏览器 EventSource 会自动重连）。
+    每条事件带 id（`id:` 帧字段）：EventSource 重连时自动带上
+    Last-Event-ID，只回放没见过的事件，流式增量不会被重复上屏。
     """
     _get_conversation_or_404(conversation_id, session)
-    events = bus.subscribe(str(conversation_id))
+    last_event_id: int | None = None
+    raw_last_id = request.headers.get("last-event-id")
+    if raw_last_id and raw_last_id.isdigit():
+        last_event_id = int(raw_last_id)
+    events = bus.subscribe(str(conversation_id), last_event_id=last_event_id)
 
     def event_stream() -> Iterator[str]:
         while True:
@@ -390,6 +396,6 @@ def stream_events(
                 item = events.get(timeout=SSE_IDLE_TIMEOUT)
             except queue.Empty:
                 return
-            yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+            yield f"id: {item['id']}\ndata: {json.dumps(item, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

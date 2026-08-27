@@ -21,6 +21,8 @@ class EventBus:
 
     publish 同时写入 backlog（晚订阅的连接/测试也能拿到历史）并推给在线
     订阅者；backlog 每会话封顶 BACKLOG_LIMIT 条防内存膨胀。
+    每条事件带会话内单调递增的 id，SSE 重连时凭 Last-Event-ID 只回放
+    没见过的，避免流式增量被重复上屏。
     """
 
     def __init__(self) -> None:
@@ -29,22 +31,29 @@ class EventBus:
             lambda: deque(maxlen=BACKLOG_LIMIT)
         )
         self._subscribers: dict[str, list[queue.Queue]] = defaultdict(list)
+        self._seq: dict[str, int] = defaultdict(int)
 
     def publish(self, conversation_id: str, event: str, data: dict[str, Any] | None = None) -> None:
-        """发布事件：先入 backlog，再推送给该会话的所有订阅队列。"""
-        item = {"event": event, "data": data or {}}
+        """发布事件：分配递增 id，先入 backlog，再推送给该会话的所有订阅队列。"""
         with self._lock:
+            self._seq[conversation_id] += 1
+            item = {"id": self._seq[conversation_id], "event": event, "data": data or {}}
             self._backlog[conversation_id].append(item)
             subscribers = list(self._subscribers[conversation_id])
         for q in subscribers:
             q.put(item)
 
-    def subscribe(self, conversation_id: str) -> "queue.Queue[dict[str, Any]]":
-        """订阅某会话：先回放 backlog 中的历史事件，再持续接收新事件。"""
+    def subscribe(
+        self, conversation_id: str, last_event_id: int | None = None
+    ) -> "queue.Queue[dict[str, Any]]":
+        """订阅某会话：先回放 backlog 中的历史事件，再持续接收新事件。
+
+        last_event_id 非空时只回放 id 更大的事件（SSE 重连幂等）。"""
         q: queue.Queue[dict[str, Any]] = queue.Queue()
         with self._lock:
             for item in self._backlog[conversation_id]:
-                q.put(item)
+                if last_event_id is None or item["id"] > last_event_id:
+                    q.put(item)
             self._subscribers[conversation_id].append(q)
         return q
 

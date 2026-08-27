@@ -114,6 +114,31 @@ def test_SSE连接在done后保持开放_后续回合事件到达同一连接(mo
     assert events == ["received", "thinking", "done", "received", "done"]
 
 
+def test_SSE重连凭LastEventId不回放已见事件(monkeypatch):
+    """重连幂等：浏览器 EventSource 自动带 Last-Event-ID，backlog 里已见过的
+    事件不再回放——否则流式回复的 reply_chunk 会被前端重复累加上屏。"""
+    monkeypatch.setattr(conversations, "SSE_IDLE_TIMEOUT", 0.2)
+    client = make_client(scripted=["流式回复"])
+    conversation_id = create_conversation(client)
+    post_message(client, conversation_id, "触发事件")
+
+    with client.stream("GET", f"/api/conversations/{conversation_id}/events") as response:
+        body = response.read().decode()
+    frames = [f for f in body.split("\n\n") if f.strip()]
+    assert len(frames) == 3
+    assert all(f.startswith("id: ") for f in frames)  # 每帧带 id，EventSource 才会回传
+    last_id = frames[-1].splitlines()[0][len("id: ") :]
+
+    with client.stream(
+        "GET",
+        f"/api/conversations/{conversation_id}/events",
+        headers={"Last-Event-ID": last_id},
+    ) as response:
+        replayed = response.read().decode()
+
+    assert replayed == ""  # 已见过的事件零回放
+
+
 def test_未知会话返回404():
     client = make_client()
     unknown_id = str(uuid.uuid4())
