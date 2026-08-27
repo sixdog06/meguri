@@ -53,13 +53,23 @@ GTFS（公共交通换乘/时刻表）：京都市営バス/地下鉄的 GTFS-JP
 
 ## RAG 语料库（#8）
 
-语料（bgm.tv 作品条目 + anitabi 地标描述）灌进同库 pgvector（`corpus_chunks` 表），经 `CorpusStore` 统一检索接口访问；`dev.sh` 默认 `MEGURI_CORPUS_MODE=live`。无 embedding key 时用确定性哈希向量（检索链路真实、向量 fake；配 `MEGURI_OPENAI_API_KEY` 后自动切 OpenAI 兼容 embedding）。灌库幂等：
+语料（bgm.tv 作品条目 + anitabi 地标描述）灌进同库 pgvector（`corpus_chunks` 表），经 `CorpusStore` 统一检索接口访问；`dev.sh` 默认 `MEGURI_CORPUS_MODE=live`。embedding 默认与 chat LLM 同端点，也可用 `MEGURI_EMBEDDING_BASE_URL`/`MEGURI_EMBEDDING_API_KEY` 独立指定——**推荐本地 Ollama bge-m3**（免费、离线、中日文混合检索好）：
+
+```bash
+brew install ollama && ollama serve &   # 起本地服务（:11434）
+ollama pull bge-m3                      # 约 1.2GB，一次性
+# .env.local 加：MEGURI_EMBEDDING_BASE_URL=http://localhost:11434/v1
+#   MEGURI_EMBEDDING_API_KEY=ollama  MEGURI_EMBEDDING_MODEL=bge-m3
+#   MEGURI_EMBEDDING_DIM=1024（改维度必须 DROP TABLE corpus_chunks 后重启重建）
+```
+
+任何 key 都不配时用确定性哈希向量（检索链路真实、向量无语义，仅供开发/测试）。灌库幂等：
 
 ```bash
 MEGURI_CORPUS_MODE=live .venv/bin/python -m app.rag.ingest --work 吹响吧！上低音号
 ```
 
-注意 anitabi 部分需要能访问 api.anitabi.cn 的网络；灌库走脚本而非运行时每请求现灌。语料事实：bgm.tv 的 summary 是真实作品简介文本；anitabi 的地标数据**没有自由文本/评论字段**，anitabi 语料是"元数据文本化"（名称+出处集数拼句），不是地标描述原文。检索有相似度阈值（`DEFAULT_MIN_SCORE`，哈希向量下的保守估计）：相关度不达标的语料不会成为讲解 citation。
+注意 anitabi 部分需要能访问 api.anitabi.cn 的网络；灌库走脚本而非运行时每请求现灌。语料事实：bgm.tv 的 summary 是真实作品简介文本；anitabi 的地标数据**没有自由文本/评论字段**，anitabi 语料是"元数据文本化"（名称+出处集数拼句），不是地标描述原文。检索有相似度阈值（`MEGURI_CORPUS_MIN_SCORE`，默认 0.6 按哈希向量标定，真 embedding 需按实测调低）：相关度不达标的语料不会成为讲解 citation。
 
 ## 评测（#10，不进 CI 门禁）
 

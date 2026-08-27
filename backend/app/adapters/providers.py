@@ -79,13 +79,15 @@ def get_corpus_store() -> CorpusStore:
     """RAG 统一检索接口（#8）：live = pgvector + embedding；fake = 内存。"""
     settings = get_settings()
     if settings.corpus_mode == "live":
-        # embedding：有 openai_api_key 用 OpenAI 兼容真向量（dimensions 对齐
-        # embedding_dim，维度不符/调用失败明确报错，不降级）；无 key 用确定性
-        # 哈希向量——检索基础设施（pgvector/余弦/top-k）真实，向量是 fake。
-        if settings.openai_api_key:
+        # embedding：有 key 用 OpenAI 兼容真向量（独立 embedding_base_url/
+        # embedding_api_key 优先，缺省回退 chat LLM 的 openai_*；dimensions
+        # 对齐 embedding_dim，维度不符/调用失败明确报错，不降级）；无 key 用
+        # 确定性哈希向量——检索基础设施真实，向量是 fake。
+        api_key = settings.embedding_api_key or settings.openai_api_key
+        if api_key:
             embedder: EmbeddingProvider = OpenAIEmbeddingProvider(
-                base_url=settings.openai_base_url,
-                api_key=settings.openai_api_key,
+                base_url=settings.embedding_base_url or settings.openai_base_url,
+                api_key=api_key,
                 model=settings.embedding_model,
                 dim=settings.embedding_dim,
             )
@@ -93,5 +95,7 @@ def get_corpus_store() -> CorpusStore:
             embedder = HashEmbeddingProvider(dim=settings.embedding_dim)
         from app.db import _get_engine
 
-        return PgVectorCorpusStore(_get_engine(), embedder)
+        return PgVectorCorpusStore(
+            _get_engine(), embedder, min_score=settings.corpus_min_score
+        )
     return InMemoryCorpusStore()

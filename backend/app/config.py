@@ -29,12 +29,20 @@ class Settings(BaseSettings):
     transit_mode: Literal["fake", "live"] = "fake"
     otp_base_url: str = "http://localhost:8081/otp"
     # RAG 语料库（#8）：live = pgvector（同库 corpus_chunks 表）+ embedding
-    # （有 openai_api_key 用 OpenAI 兼容真向量，无 key 用确定性哈希向量——
+    # （有 embedding/openai key 用 OpenAI 兼容真向量，无 key 用确定性哈希向量——
     # 检索链路真实、向量 fake）。
     corpus_mode: Literal["fake", "live"] = "fake"
     openai_api_key: str | None = None
     openai_base_url: str = "https://api.openai.com/v1"
     embedding_model: str = "text-embedding-3-small"
+    # embedding 独立端点（可与 chat LLM 不同服务）：缺省回退 openai_base_url /
+    # openai_api_key。本地 Ollama（bge-m3）：MEGURI_EMBEDDING_BASE_URL=
+    # http://localhost:11434/v1、MEGURI_EMBEDDING_API_KEY=ollama（任意非空即可）
+    embedding_base_url: str | None = None
+    embedding_api_key: str | None = None
+    # 检索相似度阈值下限（余弦）：0.6 按哈希向量分布标定；真 embedding
+    # （bge-m3 等）分布不同，按实测调低（见 rag/embedding.py 的标定注释）
+    corpus_min_score: float = 0.6
     # 对话/工具调用/讲解生成的 chat 模型（.env.local 注入，勿入库）
     openai_model: str = "kimi-for-coding"
     # 向量维度：models 的 Vector 列与 EmbeddingProvider 共用此值。

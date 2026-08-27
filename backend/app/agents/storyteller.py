@@ -18,6 +18,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.adapters.llm import LLMUnavailableError
 from app.adapters.ports import CorpusStore, LLMGateway
 from app.agents.planner import ItinerarySnapshot, Progress
+from app.rag.embedding import EmbeddingDimensionError, EmbeddingUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +107,7 @@ def narrate_itinerary(
     emit = progress or (lambda stage: None)
     emit("讲解中")
 
+    search_failed = False  # 语料检索故障只记一次日志，避免逐站刷屏
     for day in snapshot.days:
         for stop in day.seichi:
             seichi_id = str(stop.id)
@@ -115,8 +117,20 @@ def narrate_itinerary(
             query = f"{snapshot.work or ''} {stop.name}".strip()
             try:
                 chunks = corpus.search(query, k=_GENERATIVE_MAX_CHUNKS if llm else 1)
-            except (SQLAlchemyError, httpx.HTTPError):
-                chunks = []  # 语料库（DB/网络）不可达不拖垮行程生成；编程错误照常抛
+            except (
+                SQLAlchemyError,
+                httpx.HTTPError,
+                EmbeddingUnavailableError,
+                EmbeddingDimensionError,
+            ) as exc:
+                # 语料库不可达 / embedding 服务故障 / 维度配置错误都不拖垮行程
+                # 生成——降级为跳过讲解（与"检索不到语料不产出"同一语义）
+                chunks = []
+                if not search_failed:
+                    search_failed = True
+                    logger.warning(
+                        "语料检索失败，本次行程跳过讲解: %s: %s", type(exc).__name__, exc
+                    )
             if not chunks:
                 continue
             top = chunks[0]
