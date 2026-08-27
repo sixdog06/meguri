@@ -16,6 +16,11 @@ os.environ["MEGURI_ADAPTER_MODE"] = "fake"
 os.environ["MEGURI_SEICHI_MODE"] = "fake"
 os.environ["MEGURI_TRANSIT_MODE"] = "fake"
 os.environ["MEGURI_CORPUS_MODE"] = "fake"
+# .env.local 的 env_file 按 CWD 解析：从仓库根跑 pytest 会把开发者本地配置
+# （真实 key、embedding 维度等）带进测试，破坏隔离。测试环境永不读 env_file。
+from app.config import Settings  # noqa: E402
+
+Settings.model_config["env_file"] = None
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 
