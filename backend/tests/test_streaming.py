@@ -57,7 +57,7 @@ def test_纯文本final逐段推送():
 def test_工具调用JSON缓冲不上屏():
     """首轮输出 JSON 工具调用（甚至被拆成多段）不推 reply_chunk；次轮正文才推。"""
     gateway = ScriptedStreamGateway([
-        ['{"type": "tool', '_call", "name": "search_seichi", "args": {"work": "京吹"}}'],
+        ['{"type": "tool', '_call", "name": "search_seichi", "args": {"ani_name": "京吹"}}'],
         ["查到了", "，共 8 处。"],
     ])
     app.dependency_overrides[get_llm_gateway] = lambda: gateway

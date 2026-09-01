@@ -47,7 +47,7 @@ def plan_script(days: int = DAYS) -> list[str]:
             {
                 "type": "tool_call",
                 "name": "plan_itinerary",
-                "args": {"work": WORK, "area": AREA, "days": days},
+                "args": {"ani_name": WORK, "area": AREA, "days": days},
             }
         ),
         json.dumps({"type": "final", "content": "三天行程已生成"}),

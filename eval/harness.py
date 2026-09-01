@@ -24,7 +24,7 @@ def load_dataset(name: str) -> list[dict[str, Any]]:
 
 
 def plan_script(work: str, area: str, days: int) -> list[dict[str, Any]]:
-    args: dict[str, Any] = {"work": work, "area": area, "days": days}
+    args: dict[str, Any] = {"ani_name": work, "area": area, "days": days}
     return [
         {"type": "tool_call", "name": "plan_itinerary", "args": args},
         {"type": "final", "content": "评测回复"},
@@ -33,7 +33,7 @@ def plan_script(work: str, area: str, days: int) -> list[dict[str, Any]]:
 
 def search_script(work: str, area: str) -> list[dict[str, Any]]:
     return [
-        {"type": "tool_call", "name": "search_seichi", "args": {"work": work, "area": area}},
+        {"type": "tool_call", "name": "search_seichi", "args": {"ani_name": work, "area": area}},
         {"type": "final", "content": "评测回复"},
     ]
 

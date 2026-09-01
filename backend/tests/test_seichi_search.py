@@ -65,7 +65,7 @@ def make_client(repo: FakeSeichiRepository) -> TestClient:
     gateway = FakeLLMGateway(
         scripted=[
             json.dumps(
-                {"type": "tool_call", "name": "search_seichi", "args": {"work": WORK, "area": AREA}}
+                {"type": "tool_call", "name": "search_seichi", "args": {"ani_name": WORK, "area": AREA}}
             ),
             json.dumps({"type": "final", "content": "为你找到了候选圣地"}),
         ]

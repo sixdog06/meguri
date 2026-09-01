@@ -44,7 +44,7 @@ FIXTURE = [A1, A2, A3, B1, B2, C1]
 PLAN_SCRIPT = [
     json.dumps(
         {"type": "tool_call", "name": "plan_itinerary",
-         "args": {"work": WORK, "area": AREA, "days": 3}}
+         "args": {"ani_name": WORK, "area": AREA, "days": 3}}
     ),
     json.dumps({"type": "final", "content": "三天行程已生成"}),
 ]
@@ -324,7 +324,7 @@ LINE_FIXTURE = [L1, L2, L3, L4]
 LINE_PLAN_SCRIPT = [
     json.dumps(
         {"type": "tool_call", "name": "plan_itinerary",
-         "args": {"work": WORK, "area": AREA, "days": 1}}
+         "args": {"ani_name": WORK, "area": AREA, "days": 1}}
     ),
     json.dumps({"type": "final", "content": "一天行程已生成"}),
 ]

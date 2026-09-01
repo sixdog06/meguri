@@ -37,4 +37,4 @@ _实现形态（#6 起）_：非对话 Agent——确定性模块，被编排（
 
 **Storyteller**:
 讲解角色。为每个圣地产出作品背景、出处集数与名场面讲解，必须引用经统一检索接口（CorpusStore）检索到的语料（citation），检索不到则不产出（零幻觉）。
-_实现形态_：检索式拼装模块（top-1 语料原文片段 + citation），被编排（PlanItineraryTool）调用；adapter_mode=live 时升级为生成式（检索 chunks 作上下文由 LLM 写 ≤100 字讲解，citation 仍取检索 top-1 确定性结果）。
+_实现形态_：检索式拼装模块（top-1 语料原文片段 + citation），被编排（PlanItineraryTool）调用；接入真实 LLM 时升级为生成式（检索 chunks 作上下文由 LLM 写 ≤100 字讲解，citation 仍取检索 top-1 确定性结果）。

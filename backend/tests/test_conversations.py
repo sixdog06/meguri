@@ -140,6 +140,9 @@ def test_SSE重连凭LastEventId不回放已见事件(monkeypatch):
 
 
 def test_未知会话返回404():
+    # 不注入脚本化 LLM 会走生产装配（无 key 即 RuntimeError）——
+    # 404 在依赖解析前发生，但 orchestrator 依赖仍会构造，故显式 override
+    app.dependency_overrides[get_llm_gateway] = lambda: FakeLLMGateway()
     client = make_client()
     unknown_id = str(uuid.uuid4())
 
@@ -180,7 +183,7 @@ def make_react_client() -> tuple[TestClient, FakeLLMGateway, InMemoryTracer]:
     """脚本化 LLM：先请求工具调用，再给最终回复。"""
     gateway = FakeLLMGateway(
         scripted=[
-            json.dumps({"type": "tool_call", "name": "search_seichi", "args": {"work": "轻音少女"}}),
+            json.dumps({"type": "tool_call", "name": "search_seichi", "args": {"ani_name": "轻音少女"}}),
             json.dumps({"type": "final", "content": "推荐你去丰乡小学校旧址"}),
         ]
     )

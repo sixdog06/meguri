@@ -65,13 +65,13 @@ class FakeLLMGateway:
         if days_match:
             token = days_match.group(1)
             days = int(token) if token.isdigit() else _CN_DIGITS[token]
-            args: dict[str, Any] = {"work": work, "area": area, "days": days}
+            args: dict[str, Any] = {"ani_name": work, "area": area, "days": days}
             return json.dumps(
                 {"type": "tool_call", "name": "plan_itinerary", "args": args},
                 ensure_ascii=False,
             )
         return json.dumps(
-            {"type": "tool_call", "name": "search_seichi", "args": {"work": work, "area": area}},
+            {"type": "tool_call", "name": "search_seichi", "args": {"ani_name": work, "area": area}},
             ensure_ascii=False,
         )
 

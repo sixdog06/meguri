@@ -22,5 +22,6 @@ def health(
     return {
         "status": "ok" if db_health == "up" else "degraded",
         "services": {"api": "up", "db": db_health},
-        "adapters": {"llm": settings.adapter_mode, "seichi": settings.seichi_mode},
+        # LLM/交通/语料库只有唯一实现，无可报告的模式；仅圣地数据源保留开关
+        "adapters": {"seichi": settings.seichi_mode},
     }

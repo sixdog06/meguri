@@ -13,7 +13,7 @@ def test_解析带markdown_fence的JSON():
 
 
 def test_解析带前后散文的JSON():
-    raw = '我来调用工具：\n{"type": "tool_call", "name": "search_seichi", "args": {"work": "w"}}\n请稍等'
+    raw = '我来调用工具：\n{"type": "tool_call", "name": "search_seichi", "args": {"ani_name": "w"}}\n请稍等'
     result = _parse_llm_output(raw)
     assert result["type"] == "tool_call"
     assert result["name"] == "search_seichi"

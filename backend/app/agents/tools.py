@@ -25,7 +25,7 @@ class Tool(Protocol):
     name: str
     description: str
     #: system prompt 动态工具清单用的参数说明（可选；Orchestrator 读取，
-    #: 缺省为空串）。如 '{"work": "作品名", "days": 天数整数}'
+    #: 缺省为空串）。如 '{"ani_name": "作品名", "days": 天数整数}'
     args_hint: str
     #: 结构化输出通道（约定）：工具把最近一次 run 的结构化结果放在这里，
     #: Orchestrator 按工具名收集进消息 payload；无结构化输出的工具保持 None。
@@ -53,7 +53,7 @@ class SearchSeichiTool:
     name = "search_seichi"
     description = "按作品+地区检索候选圣地（名称、坐标、对照截图、出处集数）"
     # system prompt 动态工具清单用（Orchestrator._system_prompt）
-    args_hint = '{"work": "作品中文全名", "area": "城市/地区名"}'
+    args_hint = '{"ani_name": "作品中文全名", "area": "城市/地区名"}'
 
     def __init__(self, repository: SeichiRepository) -> None:
         self._repository = repository
@@ -65,7 +65,7 @@ class SearchSeichiTool:
         未收录（普通空）、无巡礼数据（NoSeichiData，显式提示）、
         数据源故障（SeichiSourceUnavailable 上抛，API 映射 503）。
         """
-        work = str(args.get("work") or "").strip()
+        work = str(args.get("ani_name") or "").strip()
         area = str(args.get("area") or "").strip()
         self.notice = None
         try:
@@ -95,7 +95,7 @@ class PlanItineraryTool:
     name = "plan_itinerary"
     description = "按作品+地区+天数生成按天组织的行程快照（地理聚类、顺序优化、交通段估算）"
     # system prompt 动态工具清单用（Orchestrator._system_prompt）
-    args_hint = '{"work": "作品中文全名", "area": "城市/地区名", "days": 天数整数}'
+    args_hint = '{"ani_name": "作品中文全名", "area": "城市/地区名", "days": 天数整数}'
 
     MAX_DAYS = 7
 
@@ -124,7 +124,7 @@ class PlanItineraryTool:
 
         参数容忍模型给的脏值（days 非整数回退默认）。
         """
-        work = str(args.get("work") or "").strip()
+        work = str(args.get("ani_name") or "").strip()
         area = str(args.get("area") or "").strip()
         try:
             days = int(args.get("days") or 1)

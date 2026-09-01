@@ -28,11 +28,12 @@ def test_health_reports_degraded_when_db_is_down():
     assert body["services"]["db"] == "down"
 
 
-def test_health_reports_adapter_modes():
+def test_health_reports_seichi_mode():
     app.dependency_overrides[get_db_health] = lambda: "up"
     client = TestClient(app)
 
     response = client.get("/api/health")
 
-    # conftest 固定 MEGURI_SEICHI_MODE=fake；LLM adapter_mode 默认 fake
-    assert response.json()["adapters"] == {"llm": "fake", "seichi": "fake"}
+    # testsupport 固定 MEGURI_SEICHI_MODE=file（离线兜底默认）；
+    # LLM/交通/语料库已无模式开关，health 只报告 seichi
+    assert response.json()["adapters"] == {"seichi": "file"}

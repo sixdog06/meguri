@@ -59,7 +59,7 @@ CHUNKS = [
 PLAN_SCRIPT = [
     json.dumps(
         {"type": "tool_call", "name": "plan_itinerary",
-         "args": {"work": WORK, "area": AREA, "days": 3}}
+         "args": {"ani_name": WORK, "area": AREA, "days": 3}}
     ),
     json.dumps({"type": "final", "content": "三天行程已生成"}),
 ]

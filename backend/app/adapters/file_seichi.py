@@ -2,11 +2,10 @@
 
 本地 ID 库与圣地数据（全部为离线灌库产物，运行时不触网）：
 - data/works/anime-1990plus.json：Bangumi 全量动画索引（作品 ID 空间，
-  find_work 按 name/name_cn 关键词匹配——这是运行时唯一的作品名解析来源）；
-- data/seichi/index.json：作品名别名 → bangumi subjectID（如“京吹”→115908）；
+  find_work 按 name/name_cn 匹配——这是运行时唯一的作品名解析来源）；
 - data/seichi/<subjectID>.json：{subject_id, work, city, points: [...Seichi 字段]}。
 
-缺索引/缺文件一律优雅降级为空结果（不报错）。相对路径以仓库根目录解析
+缺文件一律优雅降级为空结果（不报错）。相对路径以仓库根目录解析
 （本文件上三级），cwd 无关。
 """
 
@@ -29,14 +28,6 @@ class FileSeichiRepository:
         self._dir = path if path.is_absolute() else _REPO_ROOT / path
         works_path = Path(works_file)
         self._works_file = works_path if works_path.is_absolute() else _REPO_ROOT / works_path
-
-    def _load_index(self) -> dict[str, int]:
-        """读作品别名索引（关键词→subjectID）；缺文件/坏 JSON 降级为空索引。"""
-        try:
-            data = json.loads((self._dir / "index.json").read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return {}
-        return {k: v for k, v in data.items() if not k.startswith("_") and k != "comment"}
 
     def _load_work(self, subject_id: int) -> dict | None:
         """读某作品数据文件；不存在/坏 JSON 返回 None（优雅降级）。"""
@@ -62,41 +53,26 @@ class FileSeichiRepository:
             _WORKS_CACHE[key] = cached
         return cached[1]
 
-    def _match_subject(self, work: str) -> int | None:
-        """别名索引关键词匹配（如“京吹”）；未命中返回 None。
-
-        比较前去掉查询词里的空白（“轻音少女 第二季”也能命中关键词
-        “轻音少女第二季”）。索引按关键词从长到短排序命中：多季作品的具体季
-        关键词必须排在总名之前，否则总名先命中截胡（dict 保序）。"""
-        compact = "".join(work.split())
-        for keyword, subject_id in self._load_index().items():
-            if keyword in work or keyword in compact:
-                return subject_id
-        return None
-
     def find_work(self, work: str) -> WorkRef | None:
-        """作品名 → WorkRef：先别名索引，再全量动画索引（name/name_cn 包含匹配）。
+        """作品名 → WorkRef：全量动画索引（name/name_cn 包含匹配，忽略空白）。
 
         空/纯空白输入直接返回 None（"" 包含于任何字符串，会误命中索引首条）。
-        别名索引命中即返回（有无本地数据文件都返回——live 模式下由
-        AnitabiSeichiRepository 实时拉取验证，别名不短路实时拉取）；全量索引命中的 city 未知（空串）。
+        命中本地有数据包的作品时带上数据包的权威名与城市；否则 city 未知（空串）。
         """
         work = work.strip()
         if not work:
             return None
-        subject_id = self._match_subject(work)
-        if subject_id is not None:
-            data = self._load_work(subject_id)
-            return WorkRef(
-                subject_id=subject_id,
-                name=str(data.get("work") or work) if data else work,
-                city=str(data.get("city") or "") if data else "",
-            )
+        compact = "".join(work.split())
         best: dict | None = None
         best_len = 0
         for item in self._load_works_index():
-            # 命中该作品的全部名字（name_cn / name）
-            hits = [n for n in (item.get("name_cn") or "", item.get("name") or "") if work in n]
+            # 命中该作品的全部名字（name_cn / name；忽略空白，"轻音少女第二季"
+            # 也能命中带空格的 "轻音少女 第二季"）
+            names = [item.get("name_cn") or "", item.get("name") or ""]
+            hits = [
+                n for n in names
+                if n and (work in n or compact in "".join(n.split()))
+            ]
             if not hits:
                 continue
             shortest = min(len(n) for n in hits)
@@ -106,13 +82,14 @@ class FileSeichiRepository:
                 best, best_len = item, shortest
                 if shortest == len(work):
                     break
-        if best is not None:
-            return WorkRef(
-                subject_id=best["id"],
-                name=best.get("name_cn") or best.get("name") or work,
-                city="",
-            )
-        return None
+        if best is None:
+            return None
+        data = self._load_work(best["id"])
+        return WorkRef(
+            subject_id=best["id"],
+            name=str(data.get("work")) if data else (best.get("name_cn") or best.get("name") or work),
+            city=str(data.get("city") or "") if data else "",
+        )
 
     def search_seichi(self, work: str, area: str) -> list[Seichi]:
         """数据包内检索：本地 ID 库解析 → 点列表按地区宽松过滤 → Seichi。"""

@@ -12,10 +12,17 @@ from pathlib import Path
 # 测试用独立的 meguri_test 库：与 dev 守护进程共用的 meguri 库隔离——
 # 此前 reset_schema 会把用户 dev 数据一起 drop 掉。
 os.environ["MEGURI_DATABASE_URL"] = "postgresql+psycopg://meguri:meguri@localhost:5433/meguri_test"
-os.environ["MEGURI_ADAPTER_MODE"] = "fake"
-os.environ["MEGURI_SEICHI_MODE"] = "fake"
-os.environ["MEGURI_TRANSIT_MODE"] = "fake"
-os.environ["MEGURI_CORPUS_MODE"] = "fake"
+# 生产已无 fake 模式；测试替身经 HTTP 缝 dependency override 注入（见 make_client）。
+# 兜底默认：seichi 钉在 file（纯离线数据包），保证未 override 的测试也绝不触网。
+os.environ["MEGURI_SEICHI_MODE"] = "file"
+# 同理剔除 shell 里可能导出的真实 key：未 override 的 LLM/embedding 路径
+# 必须缺 key 报错或走哈希向量，不能误打真实 API。
+for _key in (
+    "MEGURI_OPENAI_API_KEY",
+    "MEGURI_EMBEDDING_API_KEY",
+    "MEGURI_EMBEDDING_BASE_URL",
+):
+    os.environ.pop(_key, None)
 # .env.local 的 env_file 按 CWD 解析：从仓库根跑 pytest 会把开发者本地配置
 # （真实 key、embedding 维度等）带进测试，破坏隔离。测试环境永不读 env_file。
 from app.config import Settings  # noqa: E402

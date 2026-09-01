@@ -8,8 +8,9 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
+from app.adapters.fakes import FakeLLMGateway
 from app.adapters.file_seichi import FileSeichiRepository
-from app.adapters.providers import get_seichi_repository
+from app.adapters.providers import get_llm_gateway, get_seichi_repository
 from app.main import app
 
 DATA_DIR = "data/seichi"  # 仓库内置真实数据包（相对仓库根解析，cwd 无关）
@@ -21,7 +22,7 @@ DATA_DIR = "data/seichi"  # 仓库内置真实数据包（相对仓库根解析�
 def test_find_work_关键词匹配():
     repo = FileSeichiRepository(DATA_DIR)
 
-    for keyword in ("京吹", "吹响吧！上低音号", "響け！ユーフォニアム"):
+    for keyword in ("上低音号", "吹响吧！上低音号", "響け！ユーフォニアム"):
         ref = repo.find_work(keyword)
         assert ref is not None
         assert ref.subject_id == 115908
@@ -34,14 +35,13 @@ def test_find_work_未收录作品返回None():
 
 
 def test_find_work_多季作品具体季优先且忽略空白():
-    """别名索引按关键词顺序首个命中：具体季关键词必须排在总名之前，
-    否则总名截胡；查询词中的空白忽略（“轻音少女 剧场版”也能命中）。"""
+    """全量索引子串匹配：具体季查询词比总名长，不会被一期截胡；查询词与
+    索引名两侧的空白都忽略（"轻音少女第二季" 也能命中 "轻音少女 第二季"）。"""
     repo = FileSeichiRepository(DATA_DIR)
 
     assert repo.find_work("轻音少女 剧场版").subject_id == 12426
     assert repo.find_work("轻音少女第二季").subject_id == 3774
-    assert repo.find_work("轻音少女2").subject_id == 3774
-    assert repo.find_work("轻音少女").subject_id == 1424  # 不带季词落回一期
+    assert repo.find_work("轻音少女").subject_id == 1424  # 不带季词落回一期（最短名）
 
 
 def test_find_work_空或纯空白输入返回None(tmp_path):
@@ -96,10 +96,11 @@ def test_works索引_mtime变化才重读(tmp_path):
 
 
 def test_缺数据目录优雅降级为空(tmp_path):
-    repo = FileSeichiRepository(str(tmp_path))
+    # works_file 也指向缺失路径：缺省会回退到仓库内置全量索引（能解析作品名）
+    repo = FileSeichiRepository(str(tmp_path), works_file=str(tmp_path / "none.json"))
 
-    assert repo.find_work("京吹") is None
-    assert repo.search_seichi("京吹", "宇治") == []
+    assert repo.find_work("上低音号") is None
+    assert repo.search_seichi("上低音号", "宇治") == []
 
 
 def test_find_work_多个包含匹配取最短名(tmp_path):
@@ -135,7 +136,7 @@ def test_search_seichi_返回真实数据切片():
 
 
 def test_search_seichi_区域过滤():
-    results = FileSeichiRepository(DATA_DIR).search_seichi("京吹", "东京")
+    results = FileSeichiRepository(DATA_DIR).search_seichi("上低音号", "东京")
     assert results == []
 
 
@@ -143,7 +144,9 @@ def test_search_seichi_区域过滤():
 
 
 def test_file数据包驱动三天行程():
-    """seichi_mode=file 的 repo 走 HTTP 缝：'宇治三天京吹' → 真实 8 圣地的 3 天行程。"""
+    """file repo 走 HTTP 缝：'宇治三天京吹' → 真实 8 圣地的 3 天行程。"""
+    # LLM 用启发式测试替身（生产已无 fake 装配，测试经 override 显式注入）
+    app.dependency_overrides[get_llm_gateway] = lambda: FakeLLMGateway()
     app.dependency_overrides[get_seichi_repository] = lambda: FileSeichiRepository(DATA_DIR)
     client = TestClient(app)
     cid = client.post("/api/conversations").json()["conversation_id"]

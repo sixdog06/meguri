@@ -19,10 +19,12 @@ def clear_dependency_overrides():
 
 @pytest.fixture(autouse=True)
 def clear_adapter_caches():
-    """OTP 的进程级缓存（生产跨请求共享）在测试间必须隔离。"""
+    """OTP 的进程级缓存与熔断器（生产跨请求共享）在测试间必须隔离。"""
     from app.adapters import otp
 
     otp._ROUTE_CACHE.clear()
+    otp._breaker_failures = 0
+    otp._breaker_open_until = 0.0
     yield
 
 
