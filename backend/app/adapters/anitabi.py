@@ -247,7 +247,7 @@ class AnitabiSeichiRepository:
         """
         self.fallback_notice = None
         self.out_of_area = []
-        refs = self._mapping.resolve_works(work)
+        refs = self._resolver.resolve_works(work)  # 与 resolve_works/find_work 同一解析路径
         if not refs:
             return []
 
