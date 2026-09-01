@@ -9,9 +9,12 @@ base_url / api_key / model 来自 settings（.env.local 注入，勿入库）。
 LLMUnavailableError——Orchestrator/API 层映射为 503，不炸 500。
 """
 
+import logging
 import threading
 import time
 from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
 
 import httpx
 
@@ -51,7 +54,7 @@ class LangChainLLMGateway:
         model: str,
         *,
         temperature: float = 1.0,  # kimi-for-coding 只允许 1（其它模型可在调用处覆盖）
-        timeout: float = 30.0,
+        timeout: float = 90.0,  # 高延迟端点上的长生成（规划回复/讲解）30s 经常不够
     ) -> None:
         self._timeout = timeout
         self._chat = ChatOpenAI(
@@ -99,15 +102,21 @@ class LangChainLLMGateway:
                 return "".join(parts)
             except _CLIENT_ERRORS as exc:
                 # 4xx 是认证/请求问题而非连接故障，重试无意义——直接包装
+                logger.warning("LLM 请求被拒绝（4xx）: %s: %s", type(exc).__name__, exc)
                 raise LLMUnavailableError(
                     f"LLM 请求被拒绝（{type(exc).__name__}）: {exc}"
                 ) from exc
             except (APIConnectionError, APITimeoutError, _HardTimeoutError) as exc:
+                logger.warning(
+                    "LLM 连接类错误（第 %d/%d 次）: %s: %s",
+                    attempt + 1, self.MAX_RETRIES + 1, type(exc).__name__, exc,
+                )
                 if streamed_any:  # 已有增量上屏，重试会重复推送——直接失败
                     raise LLMUnavailableError(str(exc)) from exc
                 last_error = exc
                 if attempt < self.MAX_RETRIES:
                     time.sleep(self.RETRY_BASE_SECONDS * (2**attempt))
+        logger.warning("LLM 重试耗尽: %s: %s", type(last_error).__name__, last_error)
         raise LLMUnavailableError(str(last_error)) from last_error
 
     HARD_DEADLINE_GRACE = 5.0  # 硬时限 = timeout + 宽限（等 httpx 自己先超时）
