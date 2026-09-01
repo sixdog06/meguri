@@ -57,6 +57,7 @@ def reset_schema() -> None:
     db.Base.metadata.drop_all(engine)
     with engine.connect() as conn:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))  # RAG 语料（#8）
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))  # 混合检索/模糊匹配
         conn.commit()
     db.Base.metadata.create_all(engine)
 

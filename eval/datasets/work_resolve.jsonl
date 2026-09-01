@@ -1,0 +1,8 @@
+{"case": "官方全名多作品全命中", "query": "轻音少女", "expect_top1": 1424, "expect_ids": [1424, 3774, 12426], "rationale": "三部曲全部返回，第一季（最短名）居首"}
+{"case": "具体季精确命中", "query": "轻音少女第二季", "expect_top1": 3774, "rationale": "查询词空白忽略，不被总名截胡"}
+{"case": "带空白查询", "query": "轻音少女 剧场版", "expect_top1": 12426}
+{"case": "日文原名子串", "query": "ユーフォニアム", "expect_top1": 115908}
+{"case": "错字缺标点模糊救回", "query": "吹响吧上低音号", "expect_top1": 115908, "rationale": "子串失败 → trigram similarity（仅差一个标点，trigram 重合高）"}
+{"case": "俗名无字面重合不命中", "query": "京吹", "expect_ids": [], "rationale": "俗名归一化是 LLM 职责；检索层不冒充"}
+{"case": "未收录返回空", "query": "完全不存在的作品xyz", "expect_ids": []}
+{"case": "最短名优先", "query": "你的名字", "expect_top1": 160209, "rationale": "《你的名字。》(君の名は。) 赢过名字更长的《…呼唤着你的名字》"}

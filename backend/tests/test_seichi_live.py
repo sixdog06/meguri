@@ -188,6 +188,118 @@ def test_未收录作品_普通空结果(mapping):
     assert repo.search_seichi("不存在的作品", "宇治") == []
 
 
+# --- 多作品命中：逐作品拉取、合并、区域外告知、部分失败 ---
+
+
+@pytest.fixture()
+def mapping_multi(tmp_path):
+    """多作品映射夹具：轻音三部曲（第一季/第二季/剧场版）。"""
+    works = tmp_path / "anime-1990plus.json"
+    works.write_text(json.dumps([
+        {"id": 1424, "name": "けいおん！", "name_cn": "轻音少女", "air_date": "2009-04-02"},
+        {"id": 3774, "name": "けいおん！！", "name_cn": "轻音少女 第二季", "air_date": "2010-04-06"},
+        {"id": 12426, "name": "映画けいおん！", "name_cn": "轻音少女 剧场版", "air_date": "2011-12-03"},
+    ]))
+    return FileSeichiRepository(data_dir=str(tmp_path), works_file=str(works))
+
+
+class StubAnitabiMulti:
+    """按 subjectID 分派的 stub：值是 AnitabiWorkSeichi/None 或异常实例。"""
+
+    def __init__(self, by_subject):
+        self._by = by_subject
+
+    def fetch_seichi(self, subject_id, work_fallback=""):
+        value = self._by[subject_id]
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+
+def _work_seichi(name, city, point_names):
+    return AnitabiWorkSeichi(
+        work_name=name,
+        city=city,
+        seichi=[
+            Seichi(id=f"{name}-{i}", name=n, work=name, area=city, lat=35.0, lng=135.0)
+            for i, n in enumerate(point_names)
+        ],
+    )
+
+
+def test_多作品命中_合并返回且区域外告知(mapping_multi):
+    repo = AnitabiSeichiRepository(
+        mapping_multi,
+        client=StubAnitabiMulti({
+            1424: _work_seichi("轻音少女", "京都市", ["A", "B"]),
+            3774: _work_seichi("轻音少女 第二季", "京都府", ["C"]),
+            12426: _work_seichi("轻音少女 剧场版", "欧洲", ["D", "E"]),
+        }),
+    )
+
+    results = repo.search_seichi("轻音少女", "京都")
+
+    assert [s.name for s in results] == ["A", "B", "C"]
+    assert {s.work for s in results} == {"轻音少女", "轻音少女 第二季"}
+    assert repo.out_of_area == [
+        {"work": "轻音少女 剧场版", "city": "欧洲", "count": 2}
+    ]
+
+
+def test_多作品_部分失败有结果时降级提示而非503(mapping_multi):
+    repo = AnitabiSeichiRepository(
+        mapping_multi,
+        client=StubAnitabiMulti({
+            1424: _work_seichi("轻音少女", "京都市", ["A"]),
+            3774: httpx.ConnectError("boom"),
+            12426: httpx.ConnectError("boom"),
+        }),
+    )
+
+    results = repo.search_seichi("轻音少女", "京都")
+
+    assert [s.name for s in results] == ["A"]
+    assert repo.fallback_notice is not None and "结果可能不全" in repo.fallback_notice
+
+
+def test_多作品_全部失败才503(mapping_multi):
+    repo = AnitabiSeichiRepository(
+        mapping_multi,
+        client=StubAnitabiMulti({
+            1424: httpx.ConnectError("boom"),
+            3774: httpx.ConnectError("boom"),
+            12426: httpx.ConnectError("boom"),
+        }),
+    )
+    with pytest.raises(SeichiSourceUnavailable):
+        repo.search_seichi("轻音少女", "京都")
+
+
+def test_多作品_部分无数据不抛错(mapping_multi):
+    """一部无巡礼数据、另一部正常 → 返回正常那部，不抛 NoSeichiData。"""
+    repo = AnitabiSeichiRepository(
+        mapping_multi,
+        client=StubAnitabiMulti({
+            1424: None,
+            3774: _work_seichi("轻音少女 第二季", "京都府", ["C"]),
+            12426: None,
+        }),
+    )
+
+    results = repo.search_seichi("轻音少女", "京都")
+
+    assert [s.name for s in results] == ["C"]
+
+
+def test_多作品_全部无数据才抛NoSeichiData(mapping_multi):
+    repo = AnitabiSeichiRepository(
+        mapping_multi,
+        client=StubAnitabiMulti({1424: None, 3774: None, 12426: None}),
+    )
+    with pytest.raises(NoSeichiData, match="轻音少女"):
+        repo.search_seichi("轻音少女", "京都")
+
+
 # --- HTTP 缝：两种情形的前端可见区分 ---
 
 SEARCH_SCRIPT = [

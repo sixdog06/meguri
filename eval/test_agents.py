@@ -6,6 +6,8 @@
 
 import json
 
+import pytest
+
 from eval.harness import (
     load_dataset,
     make_client,
@@ -142,3 +144,60 @@ def test_e2e_检查清单回放评分(tmp_path):
         for item, r in results.items():
             print(f"  {'✓' if r.score else '✗'} {item}: {r.reason}")
         assert score == 1.0, "检查清单未全过"
+
+
+# --- 一期：作品名解析（works 表 + pg_trgm）与混合检索（稠密+稀疏+RRF） ---
+
+
+@pytest.fixture(scope="module")
+def works_resolver():
+    """真实全量索引（19144 条）灌进测试库 works 表后的 DB 解析器。"""
+    from app.adapters.works_db import DbWorksResolver
+    from app.db import _get_engine
+    from app.rag.ingest_works import load_works
+
+    load_works()
+    return DbWorksResolver(_get_engine())
+
+
+def test_work_resolve_解析准确率(works_resolver):
+    """作品名 → subjectID：子串快速路径 + trigram 模糊兜底，逐 case 断言。"""
+    cases = load_dataset("work_resolve")
+    passed = 0
+    for case in cases:
+        refs = works_resolver.resolve_works(case["query"])
+        got_ids = [r.subject_id for r in refs]
+        ok = True
+        if "expect_top1" in case:
+            ok = bool(got_ids) and got_ids[0] == case["expect_top1"]
+        if "expect_ids" in case:
+            ok = ok and set(case["expect_ids"]) <= set(got_ids)
+        passed += ok
+        print(f"\n[eval:resolve] {case['case']}: {'✓' if ok else '✗'} query={case['query']!r} got={got_ids[:5]}")
+    print(f"\n[eval:resolve] 通过率 = {passed}/{len(cases)}")
+    assert passed == len(cases), "作品名解析有 case 未达标（阈值需标定）"
+
+
+def test_retrieval_混合检索recall():
+    """混合检索（真实 PG + pg_trgm 稀疏路 + RRF）：recall@k 逐 case 断言。"""
+    from app.adapters.ports import CorpusChunk
+    from app.db import _get_engine
+    from app.rag.embedding import HashEmbeddingProvider
+    from app.rag.store import PgVectorCorpusStore
+
+    cases = load_dataset("retrieval")
+    passed = 0
+    for case in cases:
+        store = PgVectorCorpusStore(_get_engine(), HashEmbeddingProvider())
+        store.upsert([CorpusChunk(**c) for c in case["chunks"]])
+        results = store.search(case["query"], k=case["k"], work=case["work"])
+        got_ids = [c.id for c in results]
+        ok = True
+        if "expect_top1" in case:
+            ok = bool(got_ids) and got_ids[0] == case["expect_top1"]
+        if "expect_ids" in case:
+            ok = ok and set(case["expect_ids"]) <= set(got_ids)
+        passed += ok
+        print(f"\n[eval:retrieval] {case['case']}: {'✓' if ok else '✗'} got={got_ids}")
+    print(f"\n[eval:retrieval] 通过率 = {passed}/{len(cases)}")
+    assert passed == len(cases), "混合检索有 case 未达标（阈值需标定）"

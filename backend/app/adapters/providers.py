@@ -46,10 +46,15 @@ def get_seichi_repository() -> SeichiRepository:
     if settings.seichi_mode == "file":
         # 纯离线数据包（真实 anitabi 切片），完全不触网时用
         return FileSeichiRepository(settings.seichi_data_dir)
+    from app.adapters.works_db import DbWorksResolver
+    from app.db import _get_engine
+
     return AnitabiSeichiRepository(
         mapping=FileSeichiRepository(settings.seichi_data_dir),
         # debug_mode=true：anitabi 不触网，返回罐头数据（开发用）
         client=AnitabiClient(debug=settings.debug_mode),
+        # 作品名解析走 works 表（pg_trgm）；数据来自 ingest_works 灌库
+        resolver=DbWorksResolver(_get_engine()),
     )
 
 

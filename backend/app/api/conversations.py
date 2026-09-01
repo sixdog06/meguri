@@ -150,6 +150,9 @@ class PostMessageResponse(BaseModel):
     seichi: list[SeichiCandidate] = []  # 本轮检索出的结构化候选圣地
     itinerary: ItineraryOut | None = None  # 本轮生成的行程快照
     notice: str | None = None  # 显式业务提示（区别于故障 503 与"还在加载"）
+    # 被地区过滤滤掉的作品摘要（[{work, city, count}]）——显式排除并告知，
+    # 前端可据此提示"还有这些地方的点，以后可单独规划"
+    out_of_area: list[dict[str, Any]] | None = None
 
 
 class MessageOut(BaseModel):
@@ -254,6 +257,7 @@ def post_message(
         seichi=payload.get("search_seichi", []),
         itinerary=payload.get("plan_itinerary"),
         notice=payload.get("notice"),
+        out_of_area=payload.get("out_of_area"),
     )
 
 

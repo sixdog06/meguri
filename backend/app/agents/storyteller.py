@@ -115,7 +115,10 @@ def narrate_itinerary(
             if existing is not None and seichi_id in existing:
                 day.narrations.append(existing[seichi_id])
                 continue
-            query = f"{snapshot.work or ''} {stop.name}".strip()
+            # 查询词只用站名：作品名已在 work 硬过滤里约束（见下），查询里
+            # 重复作品名只会稀释站名的 trigram/向量信号（真实事故：查询
+            # "作品名+站名" 时 citation 错配到只含作品名的 chunk）
+            query = stop.name
             # work 过滤用站点自带的 work（数据包/anitabi 权威名）而非用户查询词
             # （snapshot.work）：灌库语料的 work 也取自同一来源，两边天然一致；
             # 用户查询词可能和数据包名不同（"轻音少女第二季" vs "轻音少女 二期"）

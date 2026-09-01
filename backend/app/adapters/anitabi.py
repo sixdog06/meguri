@@ -21,6 +21,7 @@ import httpx
 from curl_cffi import requests as curl_requests
 from curl_cffi.requests.exceptions import RequestException
 
+from app.adapters.file_seichi import FileSeichiRepository
 from app.adapters.ports import Seichi, SeichiRepository, WorkRef
 
 ANITABI_BASE_URL = "https://api.anitabi.cn"
@@ -203,49 +204,92 @@ class AnitabiClient:
 class AnitabiSeichiRepository:
     """SeichiRepository 的线上实现：本地映射解析 → anitabi 实时拉取。
 
-    组合本地映射存储（find_work 主路径，FileSeichiRepository）与
+    组合本地映射存储（resolve_works 主路径，FileSeichiRepository）与
     AnitabiClient；两种显式结果见模块头（SeichiSourceUnavailable /
-    NoSeichiData）。anitabi 故障时若本地离线包有该作品数据则显式降级
-    （fallback_notice 告知用户是离线数据，可能不是最新），没有才 503——
-    可以降级，但绝不静默冒充实时数据。
+    NoSeichiData）。anitabi 故障时按作品逐个回退本地离线包（显式
+    fallback_notice 告知用户是离线数据，可能不是最新），可以降级，
+    但绝不静默冒充实时数据。
     """
 
-    def __init__(self, mapping: SeichiRepository, client: AnitabiClient | None = None) -> None:
+    def __init__(
+        self,
+        mapping: FileSeichiRepository,
+        client: AnitabiClient | None = None,
+        resolver: Any = None,
+    ) -> None:
         self._mapping = mapping
+        #: 作品名解析器：live 装配为 DbWorksResolver（works 表 + pg_trgm）；
+        #: 缺省回退 mapping 自身（JSON 扫描，测试/离线用）
+        self._resolver = resolver if resolver is not None else mapping
         self._client = client or AnitabiClient()
         #: 最近一次检索发生离线兜底时的用户可见提示（约定通道，tools 层读取
         #: 并进 notice）；无兜底保持 None。每次检索开头重置。
         self.fallback_notice: str | None = None
+        #: 被地区过滤整个滤掉的作品摘要（约定通道，同 fallback_notice）。
+        self.out_of_area: list[dict] = []
+
+    def resolve_works(self, work: str) -> list[WorkRef]:
+        """作品名 → 全部命中作品：经解析器（live=works 表，否则本地索引）。"""
+        return self._resolver.resolve_works(work)
 
     def find_work(self, work: str) -> WorkRef | None:
-        """作品名 → WorkRef：只查本地 ID↔名字映射（运行时不调 Bangumi）。"""
-        return self._mapping.find_work(work)
+        """作品名 → WorkRef：resolve_works 的首个命中（名字最短者）。"""
+        refs = self._resolver.resolve_works(work)
+        return refs[0] if refs else None
 
     def search_seichi(self, work: str, area: str) -> list[Seichi]:
-        """本地映射解析 → anitabi 实时拉取，按地区过滤。
+        """解析全部命中作品 → 逐作品 anitabi 实时拉取 → 地区过滤 → 合并。
 
-        未收录的作品返回 []（普通空结果）；anitabi 无该作品数据抛
-        NoSeichiData；anitabi 故障时优先回退本地离线包（显式 notice），
-        离线包也没有才抛 SeichiSourceUnavailable。
+        未收录的作品返回 []（普通空结果）；全部命中作品都无巡礼数据抛
+        NoSeichiData；anitabi 故障的作品优先回退本地离线包（显式 notice），
+        全部失败且无任何结果才抛 SeichiSourceUnavailable。被地区过滤整个
+        滤掉的作品记入 out_of_area（告知而非丢弃）。
         """
         self.fallback_notice = None
-        ref = self._mapping.find_work(work)
-        if ref is None:
+        self.out_of_area = []
+        refs = self._mapping.resolve_works(work)
+        if not refs:
             return []
-        try:
-            result = self._client.fetch_seichi(ref.subject_id, work)
-        except (httpx.HTTPError, RequestException) as exc:  # httpx（测试回放）与 curl_cffi（线上默认）两类网络错误
-            local = self._mapping.search_seichi(work, area)
-            if local:
-                self.fallback_notice = (
-                    "实时圣地数据服务不可用，当前展示的是离线数据包（可能不是最新）"
+
+        results: list[Seichi] = []
+        failures: list[Exception] = []  # anitabi 故障且无本地包可兜底的作品
+        no_data: list[str] = []  # anitabi 正常但无巡礼数据的作品名
+        for ref in refs:
+            try:
+                result = self._client.fetch_seichi(ref.subject_id, work)
+            except (httpx.HTTPError, RequestException) as exc:  # httpx（测试回放）与 curl_cffi（线上默认）两类网络错误
+                local = self._mapping.search_pack(ref.subject_id, area)
+                if local:
+                    self.fallback_notice = (
+                        "实时圣地数据服务不可用，当前展示的是离线数据包（可能不是最新）"
+                    )
+                    results.extend(local)
+                    continue
+                failures.append(exc)
+                continue
+            if result is None or not result.seichi:
+                no_data.append(ref.name)
+                continue
+            if area and not area_matches(area, result.city):
+                self.out_of_area.append(
+                    {"work": result.work_name, "city": result.city, "count": len(result.seichi)}
                 )
-                return local
+                continue
+            results.extend(result.seichi)
+
+        if results:
+            if failures:
+                # 部分作品拉取失败且无兜底：结果可能不全，如实告知
+                note = "部分作品的实时数据不可用，结果可能不全"
+                self.fallback_notice = (
+                    f"{self.fallback_notice}；{note}" if self.fallback_notice else note
+                )
+            return results
+        if failures:
             raise SeichiSourceUnavailable(
                 "圣地数据服务暂时不可用，请稍后重试"
-            ) from exc
-        if result is None or not result.seichi:
-            raise NoSeichiData(f"《{ref.name}》没有圣地巡礼数据")
-        if area and not area_matches(area, result.city):
-            return []
-        return result.seichi
+            ) from failures[0]
+        if no_data:
+            names = "、".join(f"《{n}》" for n in no_data)
+            raise NoSeichiData(f"{names}没有圣地巡礼数据")
+        return []  # 全部命中作品都被地区滤掉（out_of_area 已记录）

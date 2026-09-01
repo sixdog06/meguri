@@ -85,7 +85,19 @@ class FakeLLMGateway:
         if isinstance(data, dict) and "days" in data:  # plan_itinerary 的行程快照
             total = sum(len(day["seichi"]) for day in data["days"])
             return f"已为你规划 {data['day_count']} 天行程，共 {total} 个圣地，详见行程与地图。"
-        if isinstance(data, list) and data:  # search_seichi 的候选列表
+        if isinstance(data, dict) and "candidates" in data:  # search_seichi 的候选（按作品分组）
+            candidates = data["candidates"]
+            parts = "、".join(
+                f"《{w}》{n} 处" for w, n in (data.get("by_work") or {}).items()
+            )
+            text = f"为你找到 {len(candidates)} 个候选圣地（{parts}），已在地图上标注。"
+            if data.get("out_of_area"):
+                extra = "、".join(
+                    f"《{i['work']}》{i['city']} {i['count']} 处" for i in data["out_of_area"]
+                )
+                text += f"另外这些地区也有巡礼点，本次未包含：{extra}。"
+            return text
+        if isinstance(data, list) and data:  # 兼容旧形态：search_seichi 的候选列表
             return f"为你找到 {len(data)} 个候选圣地，已在地图上标注。"
         return "没有找到符合条件的圣地。"
 

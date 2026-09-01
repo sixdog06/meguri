@@ -79,7 +79,10 @@ def collect_chunks(work: str, max_points: int = 200) -> list[CorpusChunk]:
     return chunks
 
 
-_WORKS_INDEX_PATH = Path(__file__).resolve().parents[2] / "data/works/anime-1990plus.json"
+# 本文件上三级 = 仓库根（backend/app/rag/ingest.py → rag/app/backend → 根）。
+# 历史上误写 parents[2]（backend/data/... 不存在），_find_in_works_index 的
+# 优雅降级把它掩盖了——summary 语料曾长期静默缺失，修正后恢复。
+_WORKS_INDEX_PATH = Path(__file__).resolve().parents[3] / "data/works/anime-1990plus.json"
 
 
 def _find_in_works_index(subject_id: int) -> dict | None:

@@ -62,10 +62,18 @@ class LLMGateway(Protocol):
 class SeichiRepository(Protocol):
     def search_seichi(self, work: str, area: str) -> list[Seichi]: ...
 
-    def find_work(self, work: str) -> "WorkRef | None":
-        """作品名 → 作品解析（subjectID/名称/主城市）；找不到返回 None。
+    def resolve_works(self, work: str) -> list["WorkRef"]:
+        """作品名 → 全部命中作品的解析结果（多季/剧场版都返回，按名字短→长）。
 
-        语料灌库等场景经此公开方法取作品标识，不得绕过端口直调数据源。"""
+        找不到返回空列表。多命中是常态而非歧义——"轻音少女"命中第一季/
+        第二季/剧场版三条，由调用方决定合并还是追问。
+        """
+        ...
+
+    def find_work(self, work: str) -> "WorkRef | None":
+        """作品名 → 单个作品解析（resolve_works 的首个命中）；找不到返回 None。
+
+        语料灌库等只需单一作品的场景经此公开方法取作品标识，不得绕过端口直调数据源。"""
         ...
 
 

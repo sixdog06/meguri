@@ -83,6 +83,33 @@ def test_内存版_按作品过滤语义一致():
     assert not any(c.id in {"c1", "c2"} for c in results)  # 京吹语料不可见
 
 
+# --- 混合检索：稀疏路（pg_trgm 词相似度）独立召回 ---
+
+
+def test_稀疏路_短查询字面命中长文本(store):
+    """站名短查询 vs 长 chunk 文本：包含度（词相似度）而非整体 Jaccard——
+    后者会被文本 trigram 基数稀释到过不了阈。"""
+    results = store.search("宇治桥", k=1)
+
+    assert results and results[0].id == "c1"
+
+
+def test_稀疏路_内存版同语义():
+    from app.rag.store import InMemoryCorpusStore
+
+    store = InMemoryCorpusStore(chunks=list(CORPUS))
+    results = store.search("宇治桥", k=1)
+
+    assert results and results[0].id == "c1"
+
+
+def test_稀疏路_完全无关查询不召回(store):
+    """两路都无命中 = 空结果（讲解"检索不到就不产出"的底线）。"""
+    results = store.search("贝多芬 交响乐 第九", k=3)
+
+    assert results == []
+
+
 # --- ingestion 解析（真实响应形状的 fixture） ---
 
 BGM_SUBJECT_115908 = {

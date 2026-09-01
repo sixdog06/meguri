@@ -140,6 +140,41 @@ def test_search_seichi_区域过滤():
     assert results == []
 
 
+# --- 多作品命中：解析全保留、检索合并、区域外告知 ---
+
+
+def test_resolve_works_多作品全部命中():
+    """"轻音少女" 命中第一季/第二季/剧场版三条，按名字短→长排序。"""
+    refs = FileSeichiRepository(DATA_DIR).resolve_works("轻音少女")
+
+    assert [r.subject_id for r in refs] == [1424, 3774, 12426]
+    assert refs[0].name == "轻音少女"  # 数据包权威名
+    assert refs[0].city == "京都市"
+
+
+def test_search_seichi_多作品合并与区域外告知():
+    """区域"京都"：一期+二期点合并返回（各自带 work 标记）；
+    剧场版（欧洲）整部作品被滤掉 → out_of_area 告知而非丢弃。"""
+    repo = FileSeichiRepository(DATA_DIR)
+
+    results = repo.search_seichi("轻音少女", "京都")
+
+    assert {s.work for s in results} == {"轻音少女", "轻音少女 二期"}
+    assert len(results) == 48 + 76
+    assert repo.out_of_area == [
+        {"work": "轻音少女 剧场版", "city": "欧洲", "count": 51}
+    ]
+
+
+def test_search_seichi_单作品无歧义时行为不变():
+    repo = FileSeichiRepository(DATA_DIR)
+
+    results = repo.search_seichi("上低音号", "宇治")
+
+    assert len(results) == 8
+    assert repo.out_of_area == []  # 部分点被滤掉不算"整部作品区域外"
+
+
 # --- HTTP 缝行为测试：file repo 端到端 ---
 
 
@@ -166,6 +201,31 @@ def test_file数据包驱动三天行程():
     # 刷新后快照仍在
     fresh = TestClient(app)
     assert fresh.get(f"/api/conversations/{cid}/itinerary").json()["itinerary"] == itinerary
+
+
+def test_多作品检索_区域外摘要随响应返回():
+    """HTTP 缝：'轻音少女' 命中三部曲 → 候选合并（带 work 标记），
+    剧场版（欧洲）进 out_of_area 随响应透出。"""
+    app.dependency_overrides[get_llm_gateway] = lambda: FakeLLMGateway(scripted=[
+        json.dumps({"type": "tool_call", "name": "search_seichi",
+                    "args": {"ani_name": "轻音少女", "area": "京都"}}),
+        json.dumps({"type": "final", "content": "第一季和第二季共 124 处，剧场版在欧洲"}),
+    ])
+    app.dependency_overrides[get_seichi_repository] = lambda: FileSeichiRepository(DATA_DIR)
+    client = TestClient(app)
+    cid = client.post("/api/conversations").json()["conversation_id"]
+
+    response = client.post(
+        f"/api/conversations/{cid}/messages", json={"text": "轻音少女京都巡礼"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert {s["work"] for s in body["seichi"]} == {"轻音少女", "轻音少女 二期"}
+    assert len(body["seichi"]) == 48 + 76
+    assert body["out_of_area"] == [
+        {"work": "轻音少女 剧场版", "city": "欧洲", "count": 51}
+    ]
 
 
 @pytest.mark.parametrize("mode_env", ["file"])

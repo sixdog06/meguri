@@ -36,6 +36,10 @@ class Tool(Protocol):
     #: 进度回调（约定）：支持进度上报的工具暴露该属性，Orchestrator 在每次
     #: 回复前注入（发布 planning 事件到 SSE）；不暴露该属性的工具不上报。
     progress_sink: Callable[[str], None] | None
+    #: 区域外摘要通道（约定）：检索/规划时被地区过滤整个滤掉的作品
+    #: （[{work, city, count}]）放这里，Orchestrator 收进 payload["out_of_area"]；
+    #: 无则保持 None。语义：显式排除并告知用户，不静默丢弃。
+    out_of_area: list[dict] | None
 
     def run(self, args: dict[str, Any]) -> str:
         """执行工具：args 为线格式里的 JSON 参数；返回给 LLM 的观察值文本。"""
@@ -59,15 +63,19 @@ class SearchSeichiTool:
         self._repository = repository
         self.structured: list[Seichi] | None = None
         self.notice: str | None = None
+        self.out_of_area: list[dict] | None = None
 
     def run(self, args: dict[str, Any]) -> str:
-        """检索候选圣地：观察值是候选 JSON；空结果分三种如实区分——
-        未收录（普通空）、无巡礼数据（NoSeichiData，显式提示）、
-        数据源故障（SeichiSourceUnavailable 上抛，API 映射 503）。
+        """检索候选圣地：观察值是候选 JSON（多作品命中时按作品分组统计）；
+        空结果分三种如实区分——未收录（普通空）、无巡礼数据（NoSeichiData，
+        显式提示）、数据源故障（SeichiSourceUnavailable 上抛，API 映射 503）。
+        被地区过滤整个滤掉的作品进 out_of_area 通道，并在观察值里提示
+        模型告知用户。
         """
         work = str(args.get("ani_name") or "").strip()
         area = str(args.get("area") or "").strip()
         self.notice = None
+        self.out_of_area = None
         try:
             self.structured = self._repository.search_seichi(work, area)
         except NoSeichiData as exc:
@@ -78,9 +86,48 @@ class SearchSeichiTool:
         fallback = getattr(self._repository, "fallback_notice", None)
         if fallback:
             self.notice = fallback
+        # 区域外摘要（约定通道）：被地区过滤滤掉的作品要告知用户"以后可去"
+        out_of_area = getattr(self._repository, "out_of_area", None) or []
+        if out_of_area:
+            self.out_of_area = out_of_area
         if not self.structured:
+            if out_of_area:
+                return (
+                    "在指定地区没有找到符合条件的圣地。"
+                    f"但该作品在这些地区有巡礼点：{_format_out_of_area(out_of_area)}。"
+                    "请在回复中如实告知用户这些地点本次未包含、以后可以单独规划。"
+                )
             return "没有找到符合条件的圣地"
-        return json.dumps([asdict(s) for s in self.structured], ensure_ascii=False)
+        return json.dumps(
+            _search_observation(self.structured, out_of_area), ensure_ascii=False
+        )
+
+
+def _format_out_of_area(out_of_area: list[dict]) -> str:
+    """区域外摘要 → 一行人读文本（"《轻音少女 剧场版》欧洲 51 处"）。"""
+    return "、".join(
+        f"《{item['work']}》{item['city']} {item['count']} 处" for item in out_of_area
+    )
+
+
+def _search_observation(seichi: list[Seichi], out_of_area: list[dict]) -> dict:
+    """检索观察值：候选明细 + 按作品分组统计 + 区域外摘要（多作品命中时
+    模型据此如实分组告知；out_of_area 非空时必须转告用户）。"""
+    by_work: dict[str, int] = {}
+    for s in seichi:
+        key = s.work or ""
+        by_work[key] = by_work.get(key, 0) + 1
+    observation: dict[str, Any] = {
+        "candidates": [asdict(s) for s in seichi],
+        "by_work": by_work,
+    }
+    if out_of_area:
+        observation["out_of_area"] = out_of_area
+        observation["note"] = (
+            "out_of_area 里的作品在本次地区之外有巡礼点，请在回复中告知用户"
+            "这些地点本次未包含、以后可以单独规划"
+        )
+    return observation
 
 
 class PlanItineraryTool:
@@ -112,6 +159,7 @@ class PlanItineraryTool:
         self._llm = llm  # 提供时 Storyteller 走生成式讲解（真实模型）
         self.structured: dict[str, Any] | None = None
         self.notice: str | None = None
+        self.out_of_area: list[dict] | None = None
         self.progress_sink: Callable[[str], None] | None = None
 
     def _progress(self, stage: str) -> None:
@@ -134,7 +182,11 @@ class PlanItineraryTool:
 
         self._progress("检索中")
         self.notice = None
+        self.out_of_area = None
         try:
+            # 多作品命中（"轻音少女" → 第一季+第二季+剧场版）时合并规划：
+            # 区域内候选并入同一候选集统一聚类；每站保留自己的 work
+            # （讲解按 stop.work 检索各自作品的语料，不串味）
             seichi = self._repository.search_seichi(work, area)
         except NoSeichiData as exc:
             self.notice = str(exc)
@@ -144,8 +196,20 @@ class PlanItineraryTool:
         fallback = getattr(self._repository, "fallback_notice", None)
         if fallback:
             self.notice = fallback
+        # 区域外摘要（约定通道）：被地区过滤滤掉的作品如实告知（本次未包含）
+        out_of_area = getattr(self._repository, "out_of_area", None) or []
+        if out_of_area:
+            self.out_of_area = out_of_area
+            note = f"另有部分巡礼点不在本次地区范围内，未包含：{_format_out_of_area(out_of_area)}"
+            self.notice = f"{self.notice}；{note}" if self.notice else note
         if not seichi:
             self.structured = None
+            if out_of_area:
+                return (
+                    "在指定地区没有找到候选圣地，无法规划行程。"
+                    f"但该作品在这些地区有巡礼点：{_format_out_of_area(out_of_area)}。"
+                    "请在回复中如实告知用户这些地点本次未包含、以后可以单独规划。"
+                )
             return "没有找到候选圣地，无法规划行程"
 
         snapshot = plan_itinerary(seichi, days, progress=self._progress)
@@ -166,7 +230,16 @@ class PlanItineraryTool:
         self._progress("完成")
 
         self.structured = asdict(snapshot)
-        return json.dumps(self.structured, ensure_ascii=False)
+        observation = self.structured
+        if out_of_area:
+            # 观察值附带区域外摘要（仅给模型看；结构化快照本身不含）
+            observation = {
+                **self.structured,
+                "out_of_area": out_of_area,
+                "note": "out_of_area 里的作品在本次地区之外有巡礼点，请在回复中"
+                        "告知用户这些地点未包含在行程内、以后可以单独规划",
+            }
+        return json.dumps(observation, ensure_ascii=False)
 
 
 class ToolRegistry:

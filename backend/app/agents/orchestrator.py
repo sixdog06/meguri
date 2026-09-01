@@ -236,6 +236,10 @@ class Orchestrator:
                     notice = getattr(tool, "notice", None)
                     if notice:
                         tool_outputs["notice"] = notice
+                    # 区域外摘要通道（约定，见 Tool 协议）：被地区过滤滤掉的作品
+                    out_of_area = getattr(tool, "out_of_area", None)
+                    if out_of_area:
+                        tool_outputs["out_of_area"] = out_of_area
                 self._tracer.record(
                     "tool_call",
                     {"step": step, "name": name, "args": args, "observation": observation},
