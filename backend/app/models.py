@@ -1,15 +1,13 @@
 """持久化模型：会话（Conversation）/消息（Message）/行程快照（Itinerary）/
-RAG 语料块（CorpusChunkRow）。领域语言见 CONTEXT.md。
+作品目录（AnimeWorkRow）。领域语言见 CONTEXT.md。
 """
 
 import uuid
 from datetime import datetime, timezone
 
-from pgvector.sqlalchemy import Vector
 from sqlalchemy import JSON, ForeignKey, Index, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.config import get_settings
 from app.db import Base
 
 
@@ -68,40 +66,9 @@ class Itinerary(Base):
     created_at: Mapped[datetime] = mapped_column(default=_utcnow)
 
 
-class CorpusChunkRow(Base):
-    """RAG 语料块（#8）：pgvector 向量列 + 余弦检索；与会话数据同库。
-
-    混合检索（稠密向量 + pg_trgm 稀疏）依赖两个索引：embedding 的 HNSW
-    （近似最近邻，免全表算距离）与 text 的 GIN trigram（免全表子串扫）。
-    """
-
-    __tablename__ = "corpus_chunks"
-
-    id: Mapped[str] = mapped_column(String(128), primary_key=True)
-    source: Mapped[str] = mapped_column(String(64))
-    work: Mapped[str] = mapped_column(String(128), index=True)
-    text: Mapped[str] = mapped_column(Text)
-    # 维度随 settings.embedding_dim；改维度需 DROP 本表重建 + 重新灌库
-    embedding: Mapped[list[float]] = mapped_column(Vector(get_settings().embedding_dim))
-
-    __table_args__ = (
-        Index(
-            "corpus_chunks_embedding_hnsw",
-            "embedding",
-            postgresql_using="hnsw",
-            postgresql_ops={"embedding": "vector_cosine_ops"},
-        ),
-        Index(
-            "corpus_chunks_text_trgm",
-            "text",
-            postgresql_using="gin",
-            postgresql_ops={"text": "gin_trgm_ops"},
-        ),
-    )
-
-
-class WorksRow(Base):
-    """Bangumi 全量动画索引（作品 ID 空间）的 DB 服务层。
+class AnimeWorkRow(Base):
+    """动画作品目录（anime_works 表）：Bangumi 全量动画索引的 DB 服务层，
+    是作品名解析（作品名 → subjectID）的数据源。
 
     数据来源是 Git 里的 data/works/anime-1990plus.json（ingest_bangumi 产物），
     经 app.rag.ingest_works 幂等 upsert 进本表——表是可重建的派生物。
@@ -109,7 +76,7 @@ class WorksRow(Base):
     等价匹配靠它，trigram 索引建在 norm 列上）。
     """
 
-    __tablename__ = "works"
+    __tablename__ = "anime_works"
 
     subject_id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(Text)  # 日文原名
@@ -121,13 +88,13 @@ class WorksRow(Base):
 
     __table_args__ = (
         Index(
-            "works_name_norm_trgm",
+            "anime_works_name_norm_trgm",
             "name_norm",
             postgresql_using="gin",
             postgresql_ops={"name_norm": "gin_trgm_ops"},
         ),
         Index(
-            "works_name_cn_norm_trgm",
+            "anime_works_name_cn_norm_trgm",
             "name_cn_norm",
             postgresql_using="gin",
             postgresql_ops={"name_cn_norm": "gin_trgm_ops"},

@@ -15,14 +15,12 @@ from sqlalchemy.orm import Session
 from app.adapters.anitabi import NoSeichiData, SeichiSourceUnavailable
 from app.adapters.llm import LLMUnavailableError
 from app.adapters.ports import (
-    CorpusStore,
     LLMGateway,
     SeichiRepository,
     TransitClient,
 )
 from app.adapters.providers import (
     generative_llm,
-    get_corpus_store,
     get_llm_gateway,
     get_seichi_repository,
     get_transit_client,
@@ -103,14 +101,14 @@ class StopCheckOut(BaseModel):
 
 
 class CitationOut(BaseModel):
-    """讲解引用的语料出处。"""
+    """讲解的来源署名（anitabi 截图来源）。"""
 
-    chunk_id: str
     source: str
+    url: str | None = None
 
 
 class NarrationOut(BaseModel):
-    """单站讲解（#8）：检索语料原文片段 + citation。"""
+    """单站讲解（#8）：由站点元数据生成 + 来源署名。"""
 
     seichi_id: str
     text: str
@@ -167,7 +165,6 @@ class MessageOut(BaseModel):
 def get_tool_registry(
     repository: SeichiRepository = Depends(get_seichi_repository),
     transit: TransitClient = Depends(get_transit_client),
-    corpus: CorpusStore = Depends(get_corpus_store),
     llm: LLMGateway = Depends(get_llm_gateway),
 ) -> ToolRegistry:
     """生产 wiring：注册 Scout 的 search_seichi 工具（#4）与 Planner 的
@@ -180,7 +177,7 @@ def get_tool_registry(
     registry = ToolRegistry()
     registry.register(SearchSeichiTool(repository))
     registry.register(
-        PlanItineraryTool(repository, transit, corpus, generative_llm(llm))
+        PlanItineraryTool(repository, transit, generative_llm(llm))
     )
     return registry
 
@@ -325,7 +322,6 @@ def edit_itinerary(
     session: Session = Depends(get_session),
     repository: SeichiRepository = Depends(get_seichi_repository),
     transit: TransitClient = Depends(get_transit_client),
-    corpus: CorpusStore = Depends(get_corpus_store),
     llm: LLMGateway = Depends(get_llm_gateway),
 ) -> ItineraryResponse:
     """应用一次编辑操作 → 自动重校验（revalidate 管线）→ 新快照落库返回。"""
@@ -350,7 +346,6 @@ def edit_itinerary(
     revalidate_snapshot(
         snapshot,
         transit=transit,
-        corpus=corpus,
         llm=generative_llm(llm),
     )
 

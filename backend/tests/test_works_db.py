@@ -1,4 +1,4 @@
-"""作品名解析 DB 版（works 表 + pg_trgm）：子串快速路径 + trigram 模糊兜底。
+"""作品名解析 DB 版（anime_works 表 + pg_trgm）：子串快速路径 + trigram 模糊兜底。
 
 真实 Postgres（5433 meguri_test，testsupport 已建表 + pg_trgm 扩展）。
 """
@@ -23,11 +23,11 @@ FIXTURE_WORKS = [
 def resolver():
     engine = _get_engine()
     with engine.connect() as conn:
-        conn.execute(text("DELETE FROM works"))
+        conn.execute(text("DELETE FROM anime_works"))
         for subject_id, name, name_cn in FIXTURE_WORKS:
             conn.execute(
                 text(
-                    "INSERT INTO works (subject_id, name, name_cn, name_norm,"
+                    "INSERT INTO anime_works (subject_id, name, name_cn, name_norm,"
                     " name_cn_norm, air_date, summary)"
                     " VALUES (:id, :name, :name_cn, :nn, :ncn, '', '')"
                 ),

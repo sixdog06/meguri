@@ -36,5 +36,5 @@ _Avoid_: 剧照、截图（裸用时歧义）
 _实现形态（#6 起）_：非对话 Agent——确定性模块，被编排（PlanItineraryTool）调用，保证交通语义零幻觉。
 
 **Storyteller**:
-讲解角色。为每个圣地产出作品背景、出处集数与名场面讲解，必须引用经统一检索接口（CorpusStore）检索到的语料（citation），检索不到则不产出（零幻觉）。
-_实现形态_：检索式拼装模块（top-1 语料原文片段 + citation），被编排（PlanItineraryTool）调用；接入真实 LLM 时升级为生成式（检索 chunks 作上下文由 LLM 写 ≤100 字讲解，citation 仍取检索 top-1 确定性结果）。
+讲解角色。为每个圣地产出作品背景、出处集数讲解，事实依据是站点自带元数据（作品/站名/集数/截图秒数）；citation 是 anitabi 截图来源署名（origin/origin_url，CC BY-NC-SA 要求标注），站点无来源信息则署名如实为空。（语料库 corpus_chunks 已下线：anitabi 无地标自由文本，元数据文本化的"语料"不产生新信息。）
+_实现形态_：模板拼装模块（元数据拼句 + 来源署名），被编排（PlanItineraryTool）调用；接入真实 LLM 时升级为生成式（只许用给定元数据写 ≤100 字，失败回退模板）。

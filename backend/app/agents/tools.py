@@ -10,7 +10,6 @@ from typing import Any, Protocol
 
 from app.adapters.anitabi import NoSeichiData
 from app.adapters.ports import (
-    CorpusStore,
     LLMGateway,
     Seichi,
     SeichiRepository,
@@ -150,12 +149,10 @@ class PlanItineraryTool:
         self,
         repository: SeichiRepository,
         transit: TransitClient | None = None,
-        corpus: CorpusStore | None = None,
         llm: LLMGateway | None = None,
     ) -> None:
         self._repository = repository
         self._transit = transit
-        self._corpus = corpus
         self._llm = llm  # 提供时 Storyteller 走生成式讲解（真实模型）
         self.structured: dict[str, Any] | None = None
         self.notice: str | None = None
@@ -186,7 +183,7 @@ class PlanItineraryTool:
         try:
             # 多作品命中（"轻音少女" → 第一季+第二季+剧场版）时合并规划：
             # 区域内候选并入同一候选集统一聚类；每站保留自己的 work
-            # （讲解按 stop.work 检索各自作品的语料，不串味）
+            # （讲解按各自作品的元数据生成，不串味）
             seichi = self._repository.search_seichi(work, area)
         except NoSeichiData as exc:
             self.notice = str(exc)
@@ -196,12 +193,12 @@ class PlanItineraryTool:
         fallback = getattr(self._repository, "fallback_notice", None)
         if fallback:
             self.notice = fallback
-        # 区域外摘要（约定通道）：被地区过滤滤掉的作品如实告知（本次未包含）
+        # 区域外摘要（约定通道）：只进 out_of_area 通道（payload + 观察文本里
+        # 附告知指令，由模型在回复正文里转告用户），不进 notice——
+        # 用户拍板：这类提示在聊天流里看，不弹 toast
         out_of_area = getattr(self._repository, "out_of_area", None) or []
         if out_of_area:
             self.out_of_area = out_of_area
-            note = f"另有部分巡礼点不在本次地区范围内，未包含：{_format_out_of_area(out_of_area)}"
-            self.notice = f"{self.notice}；{note}" if self.notice else note
         if not seichi:
             self.structured = None
             if out_of_area:
@@ -223,7 +220,6 @@ class PlanItineraryTool:
         finalize_snapshot(
             snapshot,
             transit=self._transit,
-            corpus=self._corpus,
             progress=self._progress,
             llm=self._llm,
         )

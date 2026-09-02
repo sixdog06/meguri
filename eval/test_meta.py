@@ -11,14 +11,18 @@ def test_hit_rate_计算():
     assert score_hit_rate([], ["x"]) == 0.0  # 期望空但返回了 = 零分
 
 
-def test_rule_judge_citation_fidelity():
+def test_rule_judge_narration_grounded():
     judge = RuleJudge()
     ok = judge.judge(
-        "citation_fidelity", {"narration": "宇治桥是名场面…", "chunk_text": "宇治桥是名场面之一。"}
+        "narration_grounded",
+        {"text": "《京吹》取景地「宇治桥」。", "stop_name": "宇治桥",
+         "citation_source": "anitabi", "origin": "anitabi"},
     )
     assert ok.score == 1.0 and ok.reason
     bad = judge.judge(
-        "citation_fidelity", {"narration": "编造的内容", "chunk_text": "宇治桥是名场面之一。"}
+        "narration_grounded",
+        {"text": "大吉山是名场面。", "stop_name": "宇治桥",
+         "citation_source": "anitabi", "origin": "anitabi"},
     )
     assert bad.score == 0.0
 

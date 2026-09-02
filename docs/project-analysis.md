@@ -17,12 +17,12 @@
               ├─ SearchSeichiTool  → Scout：anitabi 实时检索圣地
               └─ PlanItineraryTool → Planner（确定性聚类切天）
                                    → Navigator（OTP 交通校验，确定性）
-                                   → Storyteller（RAG 讲解生成）
-          └─ Postgres（pgvector）：会话/消息/行程快照 + RAG 语料
+                                   → Storyteller（站点元数据生成讲解）
+          └─ Postgres（pg_trgm）：会话/消息/行程快照 + anime_works 作品目录
 docker-compose 四服务：db / backend / otp / web
 ```
 
-技术栈：Python 3.11+ / FastAPI / SQLAlchemy / LangChain（仅作 LLM 网关）/ Vue 3 + Vite + Leaflet / OpenTripPlanner 2.6 / pgvector。
+技术栈：Python 3.11+ / FastAPI / SQLAlchemy / LangChain（仅作 LLM 网关）/ Vue 3 + Vite + MapLibre GL / OpenTripPlanner 2.6。
 
 ## 核心叙事：五个角色，但不是五个 LLM Agent
 
@@ -34,20 +34,19 @@ docker-compose 四服务：db / backend / otp / web
 | Scout | "某作品在某区域有哪些圣地" | anitabi API 检索 | 事实检索，不需要生成 |
 | Planner | 地理聚类切天、天内排序 | 纯确定性（k-means + 最近邻 + 2-opt） | 排序质量可验证，LLM 排路线不可靠 |
 | Navigator | 真实交通段替换、时刻推算 | 确定性模块，被工具编排 | **交通语义零幻觉**——LLM 会编造不存在的换乘 |
-| Storyteller | 取景地讲解 | RAG：检索不到语料就不产出 | 讲解必须可引用（citation），零幻觉 |
+| Storyteller | 取景地讲解 | 站点元数据直接生成，citation 用 anitabi 来源署名 | 讲解贴住站点事实，不虚构出处 |
 
 金句："**LLM 只做它不可替代的事——理解用户意图和写讲解；所有可验证的事实（地点、距离、时刻）都走确定性管线和真实数据源，LLM 碰不到。**"
 
-## 亮点二：端口-适配器 + 模式矩阵，每层都可离线替换
+## 亮点二：端口-适配器，每层都可替换
 
-所有外部依赖抽象成端口（`backend/app/adapters/ports.py`：LLMGateway / SeichiRepository / TransitClient / CorpusStore / EmbeddingProvider），每个端口有 live/fake 实现，`MEGURI_*_MODE` 环境变量切换：
+所有外部依赖抽象成端口（`backend/app/adapters/ports.py`：LLMGateway / SeichiRepository / TransitClient），生产只装配真实实现（fake 体系已下线生产配置，仅作测试替身经 HTTP 缝注入）：
 
-- **LLM**：live = LangChain ChatOpenAI（30s 超时、连接错误重试 2 次、耗尽抛 503）；fake = 关键词启发式
-- **圣地数据**：live = anitabi 实时（curl_cffi 伪装 TLS 指纹绕 Cloudflare）；file = 离线数据包；fake = 测试罐头
-- **交通**：live = 本地 OTP；OTP 挂了 Navigator 自动降级为 haversine 估算段（leg 带"降级"标记），不报错
-- **RAG**：pgvector 余弦检索 + 相似度阈值，无 embedding key 时用确定性哈希向量
+- **LLM**：LangChain ChatOpenAI（90s 超时、连接错误重试 2 次、耗尽抛 503）
+- **圣地数据**：live = anitabi 实时（curl_cffi 伪装 TLS 指纹绕 Cloudflare——实测必需：同 IP 下 httpx 403、curl 200）；file = 离线数据包
+- **交通**：本地 OTP；OTP 挂了 Navigator 自动降级为 haversine 估算段（leg 带"降级"标记），不报错
 
-收益：测试全 fake 离线秒跑（`backend/tests` 经 TestClient 走 HTTP 缝）；演示可按网络条件逐层降级；每层故障语义显式。
+收益：测试全替身离线秒跑（`backend/tests` 经 TestClient 走 HTTP 缝）；演示可按网络条件逐层降级；每层故障语义显式。
 
 ## 亮点三：显式失败语义，不静默降级
 
@@ -59,7 +58,7 @@ docker-compose 四服务：db / backend / otp / web
 
 1. 用户消息 → `POST /conversations/{id}/messages`，Orchestrator 落库后拼 system prompt + 全量历史
 2. ReAct 循环：LLM 输出一行 JSON = 工具调用，纯文本 = 最终回复；首字符是 `{` 就缓冲不上屏，否则 token 级流式推 SSE `reply_chunk`
-3. `PlanItineraryTool` 内部串起整条管线：检索 → k-means 聚类切天 → OTP 耗时矩阵 2-opt 重排天内顺序 → OTP 真实段替换 + 09:00 起每站 45 分钟推算时刻 → RAG 检索语料生成讲解（top-1 作 citation）
+3. `PlanItineraryTool` 内部串起整条管线：检索 → k-means 聚类切天 → OTP 耗时矩阵 2-opt 重排天内顺序 → OTP 真实段替换 + 09:00 起每站 45 分钟推算时刻 → 站点元数据生成讲解（citation 用 anitabi 来源署名）
 4. 最终回复落库，行程写快照表，SSE 发 `done`
 5. 编辑流程：四种操作（加/删/换序/换天）纯结构变换 → 重校验 → **保留未受影响站的讲解**，只给新站补讲解
 

@@ -10,15 +10,11 @@ from app.adapters.file_seichi import FileSeichiRepository
 from app.adapters.llm import LangChainLLMGateway
 from app.adapters.otp import OTPTransitClient
 from app.adapters.ports import (
-    CorpusStore,
-    EmbeddingProvider,
     LLMGateway,
     SeichiRepository,
     TransitClient,
 )
 from app.config import get_settings
-from app.rag.embedding import HashEmbeddingProvider, OpenAIEmbeddingProvider
-from app.rag.store import PgVectorCorpusStore
 
 
 def get_llm_gateway() -> LLMGateway:
@@ -53,7 +49,7 @@ def get_seichi_repository() -> SeichiRepository:
         mapping=FileSeichiRepository(settings.seichi_data_dir),
         # debug_mode=true：anitabi 不触网，返回罐头数据（开发用）
         client=AnitabiClient(debug=settings.debug_mode),
-        # 作品名解析走 works 表（pg_trgm）；数据来自 ingest_works 灌库
+        # 作品名解析走 anime_works 表（pg_trgm）；数据来自 ingest_works 灌库
         resolver=DbWorksResolver(_get_engine()),
     )
 
@@ -61,27 +57,3 @@ def get_seichi_repository() -> SeichiRepository:
 def get_transit_client() -> TransitClient:
     """交通查询唯一实现：本地 OTP（GraphQL）；不可达时 Navigator 降级估算。"""
     return OTPTransitClient(get_settings().otp_base_url)
-
-
-def get_corpus_store() -> CorpusStore:
-    """RAG 检索唯一实现（#8）：pgvector + embedding。
-    embedding：有 key 用 OpenAI 兼容真向量（独立 embedding_base_url/
-    embedding_api_key 优先，缺省回退 chat LLM 的 openai_*；dimensions
-    对齐 embedding_dim，维度不符/调用失败明确报错，不降级）；无 key 用
-    确定性哈希向量——检索基础设施真实，向量是 fake。"""
-    settings = get_settings()
-    api_key = settings.embedding_api_key or settings.openai_api_key
-    if api_key:
-        embedder: EmbeddingProvider = OpenAIEmbeddingProvider(
-            base_url=settings.embedding_base_url or settings.openai_base_url,
-            api_key=api_key,
-            model=settings.embedding_model,
-            dim=settings.embedding_dim,
-        )
-    else:
-        embedder = HashEmbeddingProvider(dim=settings.embedding_dim)
-    from app.db import _get_engine
-
-    return PgVectorCorpusStore(
-        _get_engine(), embedder, min_score=settings.corpus_min_score
-    )

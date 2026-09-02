@@ -15,14 +15,9 @@ os.environ["MEGURI_DATABASE_URL"] = "postgresql+psycopg://meguri:meguri@localhos
 # 生产已无 fake 模式；测试替身经 HTTP 缝 dependency override 注入（见 make_client）。
 # 兜底默认：seichi 钉在 file（纯离线数据包），保证未 override 的测试也绝不触网。
 os.environ["MEGURI_SEICHI_MODE"] = "file"
-# 同理剔除 shell 里可能导出的真实 key：未 override 的 LLM/embedding 路径
-# 必须缺 key 报错或走哈希向量，不能误打真实 API。
-for _key in (
-    "MEGURI_OPENAI_API_KEY",
-    "MEGURI_EMBEDDING_API_KEY",
-    "MEGURI_EMBEDDING_BASE_URL",
-):
-    os.environ.pop(_key, None)
+# 同理剔除 shell 里可能导出的真实 key：未 override 的 LLM 路径必须缺 key
+# 报错，不能误打真实 API。
+os.environ.pop("MEGURI_OPENAI_API_KEY", None)
 # .env.local 的 env_file 按 CWD 解析：从仓库根跑 pytest 会把开发者本地配置
 # （真实 key、embedding 维度等）带进测试，破坏隔离。测试环境永不读 env_file。
 from app.config import Settings  # noqa: E402
@@ -56,8 +51,7 @@ def reset_schema() -> None:
     engine = db._get_engine()
     db.Base.metadata.drop_all(engine)
     with engine.connect() as conn:
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))  # RAG 语料（#8）
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))  # 混合检索/模糊匹配
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))  # 作品名模糊匹配
         conn.commit()
     db.Base.metadata.create_all(engine)
 
@@ -67,9 +61,8 @@ def make_client(
     repo_seichi: list,
     llm_script: list[dict],
     transit_routes: list[dict] | None = None,
-    chunks: list | None = None,
 ):
-    """按夹具组装 HTTP 缝客户端（全 fake）+ trace 收集器。"""
+    """按夹具组装 HTTP 缝客户端（测试替身注入）+ trace 收集器。"""
     from fastapi.testclient import TestClient
 
     from app.adapters.fakes import (
@@ -77,9 +70,8 @@ def make_client(
         FakeSeichiRepository,
         FakeTransitClient,
     )
-    from app.adapters.ports import CorpusChunk, Seichi
+    from app.adapters.ports import Seichi
     from app.adapters.providers import (
-        get_corpus_store,
         get_llm_gateway,
         get_seichi_repository,
         get_transit_client,
@@ -87,13 +79,9 @@ def make_client(
     from app.agents.tracing import InMemoryTracer
     from app.api.conversations import get_tracer
     from app.main import app
-    from app.rag.store import InMemoryCorpusStore
 
     def seichi_of(data):
         return data if isinstance(data, Seichi) else Seichi(**data)
-
-    def chunk_of(data):
-        return data if isinstance(data, CorpusChunk) else CorpusChunk(**data)
 
     scripted = [s if isinstance(s, str) else json.dumps(s, ensure_ascii=False) for s in llm_script]
     tracer = InMemoryTracer()
@@ -103,9 +91,6 @@ def make_client(
     )
     app.dependency_overrides[get_transit_client] = lambda: FakeTransitClient(
         scripted=list(transit_routes or [])
-    )
-    app.dependency_overrides[get_corpus_store] = lambda: InMemoryCorpusStore(
-        chunks=[chunk_of(c) for c in chunks or []]
     )
     app.dependency_overrides[get_tracer] = lambda: tracer
     return TestClient(app), tracer

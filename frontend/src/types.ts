@@ -43,11 +43,11 @@ export interface StopCheck {
   arrive_time: string
 }
 
-/** 单站讲解（#8 Storyteller）：检索语料原文片段 + citation。 */
+/** 单站讲解（#8 Storyteller）：由站点元数据生成 + 来源署名（anitabi 截图来源）。 */
 export interface Narration {
   seichi_id: string
   text: string
-  citation: { chunk_id: string; source: string } | null
+  citation: { source: string; url: string | null } | null
 }
 
 export interface ItineraryDay {

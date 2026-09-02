@@ -4,6 +4,5 @@ httpx==0.28.1
 curl_cffi==0.16.0
 sqlalchemy==2.0.51
 psycopg[binary]==3.3.4
-pgvector==0.5.0
 pydantic-settings==2.14.2
 langchain-openai==1.4.1

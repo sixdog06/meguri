@@ -228,6 +228,30 @@ def test_多作品检索_区域外摘要随响应返回():
     ]
 
 
+def test_规划路径_区域外摘要不进notice():
+    """out_of_area 由模型在回复正文转告（观察文本带告知指令），
+    不进 notice——用户拍板：这类提示在聊天流里看，不弹 toast。"""
+    app.dependency_overrides[get_llm_gateway] = lambda: FakeLLMGateway(scripted=[
+        json.dumps({"type": "tool_call", "name": "plan_itinerary",
+                    "args": {"ani_name": "轻音少女", "area": "京都", "days": 2}}),
+        json.dumps({"type": "final", "content": "两天行程；剧场版在欧洲，以后可单独规划"}),
+    ])
+    app.dependency_overrides[get_seichi_repository] = lambda: FileSeichiRepository(DATA_DIR)
+    client = TestClient(app)
+    cid = client.post("/api/conversations").json()["conversation_id"]
+
+    response = client.post(
+        f"/api/conversations/{cid}/messages", json={"text": "轻音少女京都两天"}
+    )
+
+    body = response.json()
+    assert body["itinerary"] is not None
+    assert body["notice"] is None  # 区域外信息不弹 toast
+    assert body["out_of_area"] == [
+        {"work": "轻音少女 剧场版", "city": "欧洲", "count": 51}
+    ]
+
+
 @pytest.mark.parametrize("mode_env", ["file"])
 def test_file模式经provider装配(mode_env, monkeypatch):
     from app.adapters import providers

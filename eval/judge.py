@@ -1,10 +1,9 @@
 """JudgeProvider 端口与确定性实现（#10 LLM-as-judge）。
 
 设计：judge(rubric, output) -> JudgeResult(score, reason)。rubric 是规则 id
-（如 "citation_fidelity"、"e2e:day_count_3"），RuleJudge 用确定性规则打分。
-诚实边界：citation_fidelity 只验证"讲解文本确实是其 citation chunk 的摘录
-且该 chunk 是该圣地的实际检索结果"——对检索式拼装实现这近乎恒真；真正的
-生成式事实性判断（LLM 生成的讲解是否忠于语料）是真 LLM judge 的事
+（如 "narration_grounded"、"e2e:day_count_3"），RuleJudge 用确定性规则打分。
+诚实边界：narration_grounded 只验证"讲解文本含站名、署名与站点 origin 一致"
+——生成式讲解是否编造事实（超出元数据的场景描写）是真 LLM judge 的事
 （OpenAIJudge，当前 stub，配置位 config.openai_*），见 README 评测一节。
 """
 
@@ -26,14 +25,16 @@ class RuleJudge:
     """确定性规则 judge（fake）：rubric id → 规则断言。接真 LLM 后替换。"""
 
     def judge(self, rubric: str, output: dict[str, Any]) -> JudgeResult:
-        if rubric == "citation_fidelity":
-            # 引用保真：讲解文本必须是其 citation 语料原文的摘录
-            narration = output["narration"]
-            chunk_text = output["chunk_text"]
-            supported = narration.rstrip("…") in chunk_text
+        if rubric == "narration_grounded":
+            # 讲解接地：文本必须提到本站站名（模板/生成都得贴住本站）；
+            # 来源署名必须等于站点的 origin（不许张冠李戴）
+            name_ok = output["stop_name"] in output["text"]
+            cite_ok = output["citation_source"] == output["origin"]
+            passed = name_ok and cite_ok
             return JudgeResult(
-                1.0 if supported else 0.0,
-                "讲解是其 citation chunk 的摘录" if supported else "讲解不在 citation 语料原文中",
+                1.0 if passed else 0.0,
+                "讲解含站名且署名与站点来源一致" if passed
+                else f"接地失败（含站名={name_ok}，署名一致={cite_ok}）",
             )
         if rubric.startswith("e2e:"):
             passed = bool(output["predicate"])

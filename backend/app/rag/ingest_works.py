@@ -1,5 +1,5 @@
-"""works 表灌库：data/works/anime-1990plus.json（Bangumi 离线索引，Git 里的源
-artifact）→ DB 服务层。幂等 upsert（按 subject_id merge），可反复跑。
+"""anime_works 表灌库：data/works/anime-1990plus.json（Bangumi 离线索引，Git 里的源
+artifact）→ DB 服务层。幂等 upsert（按 subject_id），可反复跑。
 
 用法：.venv/bin/python -m app.rag.ingest_works
 （从仓库根运行，读 .env.local 的 MEGURI_DATABASE_URL；或显式传环境变量）
@@ -11,7 +11,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from app.db import _get_engine
-from app.models import WorksRow
+from app.models import AnimeWorkRow
 
 # 本文件上三级 = 仓库根（backend/app/rag/ingest_works.py → rag/app/backend → 根）
 _WORKS_INDEX_PATH = Path(__file__).resolve().parents[3] / "data/works/anime-1990plus.json"
@@ -24,7 +24,7 @@ def _norm(name: str) -> str:
 
 
 def load_works(path: Path = _WORKS_INDEX_PATH) -> int:
-    """JSON → works 表（批量 upsert，幂等）；返回写入条数。"""
+    """JSON → anime_works 表（批量 upsert，幂等）；返回写入条数。"""
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
     items = json.loads(path.read_text(encoding="utf-8"))
@@ -40,7 +40,7 @@ def load_works(path: Path = _WORKS_INDEX_PATH) -> int:
         }
         for item in items
     ]
-    stmt = pg_insert(WorksRow)
+    stmt = pg_insert(AnimeWorkRow)
     stmt = stmt.on_conflict_do_update(
         index_elements=["subject_id"],
         set_={c: getattr(stmt.excluded, c) for c in rows[0] if c != "subject_id"},
@@ -55,7 +55,7 @@ def load_works(path: Path = _WORKS_INDEX_PATH) -> int:
 
 def main() -> None:
     count = load_works()
-    print(f"已灌入 {count} 条作品记录 → works 表")
+    print(f"已灌入 {count} 条作品记录 → anime_works 表")
 
 
 if __name__ == "__main__":

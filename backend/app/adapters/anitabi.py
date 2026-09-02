@@ -218,7 +218,7 @@ class AnitabiSeichiRepository:
         resolver: Any = None,
     ) -> None:
         self._mapping = mapping
-        #: 作品名解析器：live 装配为 DbWorksResolver（works 表 + pg_trgm）；
+        #: 作品名解析器：live 装配为 DbWorksResolver（anime_works 表 + pg_trgm）；
         #: 缺省回退 mapping 自身（JSON 扫描，测试/离线用）
         self._resolver = resolver if resolver is not None else mapping
         self._client = client or AnitabiClient()
@@ -229,7 +229,7 @@ class AnitabiSeichiRepository:
         self.out_of_area: list[dict] = []
 
     def resolve_works(self, work: str) -> list[WorkRef]:
-        """作品名 → 全部命中作品：经解析器（live=works 表，否则本地索引）。"""
+        """作品名 → 全部命中作品：经解析器（live=anime_works 表，否则本地索引）。"""
         return self._resolver.resolve_works(work)
 
     def find_work(self, work: str) -> WorkRef | None:

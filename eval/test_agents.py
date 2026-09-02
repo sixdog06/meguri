@@ -68,35 +68,36 @@ def test_navigator_时间可行性规则():
         assert all(rules.values()), f"规则未全过: {rules}"
 
 
-def test_storyteller_citation_fidelity_judge():
+def test_storyteller_讲解接地_judge():
     judge = RuleJudge()
     cases = load_dataset("storyteller")
     for case in cases:
         client, _ = make_client(
             repo_seichi=case["seichi"],
             llm_script=plan_script(case["work"], case["area"], case["days"]),
-            chunks=case["chunks"],
         )
         itinerary = run_message(client, "规划行程")["itinerary"]
-        chunk_by_id = {c["id"]: c for c in case["chunks"]}
+        stop_by_id = {s["id"]: s for s in case["seichi"]}
         narrations = [n for d in itinerary["days"] for n in d["narrations"]]
         assert narrations, "本案例应产出讲解"
         scores = []
         for n in narrations:
-            chunk = chunk_by_id[n["citation"]["chunk_id"]]
-            # 跨作品错配防线：citation 的语料必须属于当前行程的作品
-            # （真实事故：轻音行程引用了京吹"河原町通"语料——同名地点污染）
-            assert chunk["work"] == case["work"], (
-                f"跨作品错配：{n['seichi_id']} 引用了《{chunk['work']}》的语料"
-            )
+            stop = stop_by_id[n["seichi_id"]]
+            citation = n["citation"] or {}
             result = judge.judge(
-                "citation_fidelity", {"narration": n["text"], "chunk_text": chunk["text"]}
+                "narration_grounded",
+                {
+                    "text": n["text"],
+                    "stop_name": stop["name"],
+                    "citation_source": citation.get("source"),
+                    "origin": stop.get("origin"),
+                },
             )
             scores.append(result.score)
             if not result.score:
-                print(f"\n[eval:storyteller] 不保真: {n['seichi_id']} {result.reason}")
+                print(f"\n[eval:storyteller] 不接地: {n['seichi_id']} {result.reason}")
         mean = sum(scores) / len(scores)
-        print(f"\n[eval:storyteller] {case['case']}: citation_fidelity={mean:.2f}（{len(scores)} 条讲解）")
+        print(f"\n[eval:storyteller] {case['case']}: narration_grounded={mean:.2f}（{len(scores)} 条讲解）")
         assert mean >= case["min_judge_score"]
 
 
@@ -112,7 +113,6 @@ def test_e2e_检查清单回放评分(tmp_path):
         client, _ = make_client(
             repo_seichi=case["seichi"],
             llm_script=plan_script(case["work"], case["area"], case["days"]),
-            chunks=case.get("chunks", []),
         )
         # JsonlTracer 真实消费：trace 落临时文件，回放后读 JSONL 验证可读
         trace_path = tmp_path / "trace.jsonl"
@@ -146,12 +146,12 @@ def test_e2e_检查清单回放评分(tmp_path):
         assert score == 1.0, "检查清单未全过"
 
 
-# --- 一期：作品名解析（works 表 + pg_trgm）与混合检索（稠密+稀疏+RRF） ---
+# --- 一期：作品名解析（anime_works 表 + pg_trgm） ---
 
 
 @pytest.fixture(scope="module")
 def works_resolver():
-    """真实全量索引（19144 条）灌进测试库 works 表后的 DB 解析器。"""
+    """真实全量索引（19144 条）灌进测试库 anime_works 表后的 DB 解析器。"""
     from app.adapters.works_db import DbWorksResolver
     from app.db import _get_engine
     from app.rag.ingest_works import load_works
@@ -176,28 +176,3 @@ def test_work_resolve_解析准确率(works_resolver):
         print(f"\n[eval:resolve] {case['case']}: {'✓' if ok else '✗'} query={case['query']!r} got={got_ids[:5]}")
     print(f"\n[eval:resolve] 通过率 = {passed}/{len(cases)}")
     assert passed == len(cases), "作品名解析有 case 未达标（阈值需标定）"
-
-
-def test_retrieval_混合检索recall():
-    """混合检索（真实 PG + pg_trgm 稀疏路 + RRF）：recall@k 逐 case 断言。"""
-    from app.adapters.ports import CorpusChunk
-    from app.db import _get_engine
-    from app.rag.embedding import HashEmbeddingProvider
-    from app.rag.store import PgVectorCorpusStore
-
-    cases = load_dataset("retrieval")
-    passed = 0
-    for case in cases:
-        store = PgVectorCorpusStore(_get_engine(), HashEmbeddingProvider())
-        store.upsert([CorpusChunk(**c) for c in case["chunks"]])
-        results = store.search(case["query"], k=case["k"], work=case["work"])
-        got_ids = [c.id for c in results]
-        ok = True
-        if "expect_top1" in case:
-            ok = bool(got_ids) and got_ids[0] == case["expect_top1"]
-        if "expect_ids" in case:
-            ok = ok and set(case["expect_ids"]) <= set(got_ids)
-        passed += ok
-        print(f"\n[eval:retrieval] {case['case']}: {'✓' if ok else '✗'} got={got_ids}")
-    print(f"\n[eval:retrieval] 通过率 = {passed}/{len(cases)}")
-    assert passed == len(cases), "混合检索有 case 未达标（阈值需标定）"

@@ -153,7 +153,12 @@ function addStop(day: ItineraryDay) {
               <p v-if="narrationOf(displayDay, s.id)" class="narration">
                 {{ narrationOf(displayDay, s.id)!.text }}
                 <span v-if="narrationOf(displayDay, s.id)!.citation" class="citation">
-                  语料：{{ narrationOf(displayDay, s.id)!.citation!.source }}
+                  <template v-if="narrationOf(displayDay, s.id)!.citation!.url">
+                    来源：<a :href="narrationOf(displayDay, s.id)!.citation!.url!" target="_blank" rel="noopener">{{ narrationOf(displayDay, s.id)!.citation!.source }}</a>
+                  </template>
+                  <template v-else>
+                    来源：{{ narrationOf(displayDay, s.id)!.citation!.source }}
+                  </template>
                 </span>
               </p>
               <!-- 编辑操作只在编辑模式出现，改动先落本地草稿，提交后才重规划 -->

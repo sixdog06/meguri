@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 docker compose up -d db
 
 export MEGURI_DATABASE_URL=postgresql+psycopg://meguri:meguri@localhost:5433/meguri
-# LLM/交通/RAG 语料只有唯一实现（真实模型 / 本地 OTP / 同库 pgvector），无模式开关；
+# LLM/交通只有唯一实现（真实模型 / 本地 OTP），无模式开关；
 # LLM key 在 .env.local（已 gitignore）
 # 圣地数据源：live = anitabi 实时（故障显式 503 / 本地包兜底）；
 # 完全不触网可改 MEGURI_SEICHI_MODE=file（本地数据包）
@@ -17,7 +17,7 @@ export MEGURI_SEICHI_MODE=live
 export MEGURI_DEBUG_MODE=${MEGURI_DEBUG_MODE:-false}
 # 交通走本地 OTP（otp/download.sh + otp/build.sh 先建 graph，
 # docker compose up -d otp 起服务；OTP 未起时 Navigator 自动降级为估算段）
-# RAG 语料灌库：.venv/bin/python -m app.rag.ingest --work 吹响吧！上低音号
+# 作品目录灌库（works 解析依赖）：.venv/bin/python -m app.rag.ingest_works
 
 # Ctrl-C 时把两个后台进程一起收掉
 trap 'kill 0' EXIT

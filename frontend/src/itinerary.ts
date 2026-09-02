@@ -26,7 +26,7 @@ export function crossDayLeg(day: ItineraryDay): TransitLeg | undefined {
   return day.legs.find((l) => l.cross_day)
 }
 
-/** 单站讲解（检索语料 + citation）。 */
+/** 单站讲解（元数据生成 + 来源署名）。 */
 export function narrationOf(day: ItineraryDay, seichiId: string | null): Narration | undefined {
   return day.narrations.find((n) => n.seichi_id === seichiId)
 }

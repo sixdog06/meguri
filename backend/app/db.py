@@ -1,6 +1,6 @@
 """数据库连接与建表：SQLAlchemy engine（单例）+ 会话依赖 + 启动期建表。
 
-会话/行程/语料数据同库（meguri，含 pgvector 扩展）；尚无 Alembic，
+会话/行程/作品目录数据同库（meguri，含 pg_trgm 扩展）；尚无 Alembic，
 schema 变更靠 create_all（新表有效，旧表加列需重建）。
 """
 
@@ -33,13 +33,11 @@ def get_session() -> Iterator[Session]:
 
 
 def init_db() -> None:
-    """启动时建表（尚无 Alembic，见后续 ticket）；RAG 语料需要 pgvector，
-    混合检索/作品名模糊匹配需要 pg_trgm。"""
+    """启动时建表（尚无 Alembic，见后续 ticket）；作品名模糊匹配需要 pg_trgm。"""
     from app import models  # noqa: F401  (导入以注册表)
 
     engine = _get_engine()
     with engine.connect() as conn:
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
         conn.commit()
     Base.metadata.create_all(engine)

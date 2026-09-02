@@ -10,15 +10,13 @@ from fastapi.testclient import TestClient
 
 from app.adapters.anitabi import SeichiSourceUnavailable
 from app.adapters.fakes import FakeLLMGateway, FakeSeichiRepository, FakeTransitClient
-from app.adapters.ports import CorpusChunk, Seichi
+from app.adapters.ports import Seichi
 from app.adapters.providers import (
-    get_corpus_store,
     get_llm_gateway,
     get_seichi_repository,
     get_transit_client,
 )
 from app.main import app
-from app.rag.store import InMemoryCorpusStore
 
 WORK = "吹响吧！上低音号"
 AREA = "宇治"
@@ -49,14 +47,6 @@ PLAN_SCRIPT = [
     json.dumps({"type": "final", "content": "三天行程已生成"}),
 ]
 
-CHUNKS = [
-    CorpusChunk(id="ck-a1", source="anitabi", work=WORK,
-                text="宇治桥是《吹响吧！上低音号》久美子放学路过的桥。"),
-    CorpusChunk(id="ck-x1", source="anitabi", work=WORK,
-                text="喜撰桥是《吹响吧！上低音号》宇治川上的另一座名场面桥。"),
-]
-
-
 def make_client(
     repo: FakeSeichiRepository | None = None,
     transit: FakeTransitClient | None = None,
@@ -64,7 +54,6 @@ def make_client(
     app.dependency_overrides[get_llm_gateway] = lambda: FakeLLMGateway(scripted=list(PLAN_SCRIPT))
     app.dependency_overrides[get_seichi_repository] = lambda: repo or FakeSeichiRepository(seichi=FIXTURE)
     app.dependency_overrides[get_transit_client] = lambda: transit or FakeTransitClient()
-    app.dependency_overrides[get_corpus_store] = lambda: InMemoryCorpusStore(chunks=CHUNKS)
     return TestClient(app)
 
 
@@ -121,15 +110,16 @@ def test_添加圣地_从候选按id加入并补讲解():
     day3 = day_of(itinerary, "x1")
     assert day3["day"] == 3
     assert [s["id"] for s in day3["seichi"]] == ["c1", "x1"]  # 追加到当天末尾
-    # 新站有交通段和讲解（经 Storyteller 检索）
+    # 新站有交通段和讲解（Storyteller 由元数据生成）
     pairs = [(leg["from_id"], leg["to_id"]) for leg in day3["legs"] if not leg["cross_day"]]
     assert pairs == [("c1", "x1")]
     narration = next(n for n in day3["narrations"] if n["seichi_id"] == "x1")
-    assert narration["citation"]["chunk_id"] == "ck-x1"
+    assert "喜撰桥" in narration["text"]
+    assert narration["citation"]["source"] == "fake"  # 署名来自站点 origin
     # 未受影响的讲解保留
     day2 = day_of(itinerary, "a1")
     kept = next(n for n in day2["narrations"] if n["seichi_id"] == "a1")
-    assert kept["citation"]["chunk_id"] == "ck-a1"
+    assert "宇治桥" in kept["text"]
 
 
 def test_改序_天内调整顺序():

@@ -6,7 +6,7 @@
   checks、保留未受影响站的讲解）后接 finalize。
 """
 
-from app.adapters.ports import CorpusStore, LLMGateway, TransitClient
+from app.adapters.ports import LLMGateway, TransitClient
 from app.agents.navigator import validate_itinerary
 from app.agents.planner import ItinerarySnapshot, Progress, rebuild_days
 from app.agents.storyteller import Narration, narrate_itinerary
@@ -16,19 +16,17 @@ def finalize_snapshot(
     snapshot: ItinerarySnapshot,
     *,
     transit: TransitClient | None,
-    corpus: CorpusStore | None,
     progress: Progress | None = None,
     existing_narrations: dict[str, Narration] | None = None,
     llm: LLMGateway | None = None,
 ) -> ItinerarySnapshot:
-    """收尾管线：Navigator 校验 → Storyteller 讲解（如有语料库）。
+    """收尾管线：Navigator 校验 → Storyteller 讲解。
 
-    llm 提供时讲解走生成式（接真实模型）；否则保持检索式拼装。"""
+    llm 提供时讲解走生成式（接真实模型）；否则保持模板拼装。"""
     validate_itinerary(snapshot, transit, progress=progress)
-    if corpus is not None:
-        narrate_itinerary(
-            snapshot, corpus, progress=progress, existing=existing_narrations, llm=llm
-        )
+    narrate_itinerary(
+        snapshot, progress=progress, existing=existing_narrations, llm=llm
+    )
     return snapshot
 
 
@@ -36,13 +34,12 @@ def revalidate_snapshot(
     snapshot: ItinerarySnapshot,
     *,
     transit: TransitClient | None,
-    corpus: CorpusStore | None,
     llm: LLMGateway | None = None,
 ) -> ItinerarySnapshot:
     """编辑后的自动重校验（#9）：重建失效交通段（估算）→ 校验/讲解收尾。
 
     失效交通段先落回估算段，由 Navigator 替换为真实段；替换不了按 #6
-    降级语义标记。未受影响站的讲解按 seichi_id 保留，新加入的站检索补充。
+    降级语义标记。未受影响站的讲解按 seichi_id 保留，新加入的站重新生成。
     """
     snapshot.days = rebuild_days(snapshot.days)
     snapshot.day_count = len(snapshot.days)
@@ -54,7 +51,6 @@ def revalidate_snapshot(
     return finalize_snapshot(
         snapshot,
         transit=transit,
-        corpus=corpus,
         existing_narrations=existing,
         llm=llm,
     )

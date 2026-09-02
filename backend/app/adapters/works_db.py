@@ -1,4 +1,4 @@
-"""作品名解析的 DB 实现（live 模式主路径）：works 表 + pg_trgm，两跳匹配。
+"""作品名解析的 DB 实现（live 模式主路径）：anime_works 表 + pg_trgm，两跳匹配。
 
 - 快速路径：norm 列（去空白）的 ILIKE 子串匹配，走 GIN trigram 索引——
   与旧 JSON 线性扫描语义一致（含空白忽略），但不再逐行扫；
@@ -25,7 +25,7 @@ def _escape_like(q: str) -> str:
 
 
 class DbWorksResolver:
-    """works 表查询器：只负责 作品名 → [WorkRef]，不碰圣地数据。"""
+    """anime_works 表查询器：只负责 作品名 → [WorkRef]，不碰圣地数据。"""
 
     def __init__(self, engine: Engine) -> None:
         self._engine = engine
@@ -46,7 +46,7 @@ class DbWorksResolver:
         with self._engine.connect() as conn:
             rows = conn.execute(
                 text(
-                    "SELECT subject_id, name, name_cn FROM works"
+                    "SELECT subject_id, name, name_cn FROM anime_works"
                     " WHERE name_cn_norm ILIKE :pat ESCAPE '\\'"
                     "    OR name_norm ILIKE :pat ESCAPE '\\'"
                 ),
@@ -73,7 +73,7 @@ class DbWorksResolver:
                     "SELECT subject_id, name, name_cn,"
                     " GREATEST(similarity(name_norm, :q),"
                     "         similarity(name_cn_norm, :q)) AS sim"
-                    " FROM works WHERE name_norm % :q OR name_cn_norm % :q"
+                    " FROM anime_works WHERE name_norm % :q OR name_cn_norm % :q"
                     " ORDER BY sim DESC, subject_id LIMIT :limit"
                 ),
                 {"q": compact, "limit": _FUZZY_LIMIT},

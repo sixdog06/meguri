@@ -2,7 +2,7 @@
 
 Every external dependency (LLM provider, seichi data source, transit engine)
 is accessed through one of these protocols. Tests and local development wire
-fakes (app.adapters.fakes); live implementations arrive with later tickets.
+test doubles (app.adapters.fakes).
 """
 
 from dataclasses import dataclass
@@ -93,30 +93,3 @@ class TransitClient(Protocol):
         *,
         depart_at: datetime | None = None,
     ) -> dict[str, Any] | None: ...
-
-
-@dataclass
-class CorpusChunk:
-    """RAG 语料块（#8）：作品条目 / 地标描述，经统一检索接口访问。"""
-
-    id: str  # 稳定 id（如 bangumi:115908 / anitabi:115908:7gs3o1mm），upsert 幂等靠它
-    source: str  # 语料来源（bangumi.tv / anitabi）
-    work: str
-    text: str
-
-
-class EmbeddingProvider(Protocol):
-    """文本向量化端口。无真实 key 时用确定性哈希向量（fake）开发/测试。"""
-
-    def embed(self, texts: list[str]) -> list[list[float]]: ...
-
-
-class CorpusStore(Protocol):
-    """统一检索接口（#8）：语料写入与 top-k 相似检索。"""
-
-    def upsert(self, chunks: list[CorpusChunk]) -> None: ...
-
-    def search(self, query: str, k: int, work: str | None = None) -> list[CorpusChunk]:
-        """top-k 相似检索；work 非空时只返回该作品的语料——讲解必须出自
-        当前作品，跨作品"同名地点"的语料不许错配（零幻觉底线的边界）。"""
-        ...
