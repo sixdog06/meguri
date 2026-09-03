@@ -48,7 +48,10 @@ function exportPdf() {
 /** 进入编辑模式：快照当前行程与候选，之后的改动只动本地草稿。 */
 function startEdit() {
   if (!props.itinerary) return
-  draft.value = structuredClone(props.itinerary.days)
+  // 深拷贝快照：props 里的 days 是 Vue 响应式 proxy，structuredClone 遇到
+  // proxy 会抛 DataCloneError（编辑按钮点了没反应的根因）——数据本就是
+  // fetch 来的纯 JSON，用 JSON 往返拷贝即可
+  draft.value = JSON.parse(JSON.stringify(props.itinerary.days)) as ItineraryDay[]
   draftCandidates.value = [...props.candidates]
   pendingOps.value = []
   editMode.value = true
@@ -71,6 +74,13 @@ function submitEdit() {
 }
 
 const addSelection = ref<Record<number, string>>({}) // 当前天“添加圣地”下拉的选择
+
+/** 加载失败的截图：URL 存在但取不到（404/网络）时同样不展示，不留破图占位。 */
+const brokenImages = ref(new Set<string>())
+
+function onPhotoError(s: SeichiCandidate) {
+  brokenImages.value = new Set(brokenImages.value).add(String(s.id ?? s.name))
+}
 
 /** 改序（草稿内）：上移/下移一位，暂存当天全量新顺序。 */
 function moveStop(day: ItineraryDay, i: number, dir: -1 | 1) {
@@ -148,8 +158,15 @@ function addStop(day: ItineraryDay) {
               <div class="t-head">
                 <span class="t-name" title="在地图上定位" @click="emit('focus', s)">{{ s.name }}</span>
               </div>
-              <!-- 对照截图（anitabi 参考图）：有就展示，与地图弹窗一致 -->
-              <img v-if="s.image" class="t-photo" :src="s.image" :alt="s.name" loading="lazy" />
+              <!-- 对照截图（anitabi 参考图）：有图且能加载才展示，URL 失效也不留破图 -->
+              <img
+                v-if="s.image && !brokenImages.has(String(s.id ?? s.name))"
+                class="t-photo"
+                :src="s.image"
+                :alt="s.name"
+                loading="lazy"
+                @error="onPhotoError(s)"
+              />
               <p v-if="narrationOf(displayDay, s.id)" class="narration">
                 {{ narrationOf(displayDay, s.id)!.text }}
                 <span v-if="narrationOf(displayDay, s.id)!.citation" class="citation">
