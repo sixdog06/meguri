@@ -76,6 +76,8 @@ docker compose exec backend python -m app.rag.ingest_works
 
 内部链路：`ani_name` → `anime_works` 表解析 subjectID（子串精确匹配优先，pg_trgm 相似度兜底错字，多作品命中全返回）→ 逐作品实时调 anitabi 取地标（故障按作品回退本地离线包并显式提示）→ 地区过滤 + 合并。
 
+**作品名解析为什么用 pg_trgm**：用户输入不可能总是标准全名——会少字、带错字（"吹响吧上低音号" 少个标点）。pg_trgm 的做法是把字符串切成连续三字符窗口（trigram）的集合，两个字符串的相似度 = 共有 trigram 占的比例：错一个字只影响相邻两三个窗口，其余全部重合，所以错字依然高分命中；而"京吹"和"吹响吧！上低音号"没有任何公共 trigram，如实不命中（俗名归一化是上游 LLM 的职责，检索层不冒充）。它不查词表、不分词，中文/日文/混排天然适用。索引上，GIN 把每个名字的 trigram 建成"trigram → 行"的倒排表，查询时按 trigram 集合直接取候选行，不扫全表。
+
 **plan_itinerary（Planner 全家桶：检索 → 聚类 → 交通 → 讲解）**
 
 输入：
