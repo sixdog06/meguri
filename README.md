@@ -43,7 +43,7 @@ docker compose exec backend python -m app.rag.ingest_works
 
 1. 用户消息先落库（`messages` 表），SSE 推 `received`
 2. 组装上下文：system prompt（角色 + 动态工具清单 + 线格式约定）+ 该会话全量历史
-3. 调 LLM（LangChain 网关，90s 超时，连接错误重试 2 次）。输出按首字符分类：`{` 开头 = 工具调用（缓冲不上屏），否则 = 最终回复（逐段 SSE 流式上屏）
+3. 调 LLM。输出按首字符分类：`{` 开头 = 工具调用（缓冲不上屏），否则 = 最终回复（逐段 SSE 流式上屏）
 4. 工具调用 → 执行 → 观察结果以 `[工具观察结果]` 前缀回灌 messages，进入下一轮；最多 5 轮兜底
 5. 最终回复落库（assistant 消息 + 结构化 payload），行程快照追加到 `itineraries` 表，SSE 推 `done`
 
