@@ -13,7 +13,7 @@ from app.db import init_db
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期：启动时建表（含 pgvector 扩展），关闭无额外清理。"""
+    """应用生命周期：启动时建表（含 pg_trgm 扩展），关闭无额外清理。"""
     init_db()
     yield
 

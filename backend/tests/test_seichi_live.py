@@ -43,12 +43,12 @@ def mapping(tmp_path):
 
 
 def test_映射表按中日文名匹配(mapping):
-    assert mapping.find_work("上低音号").subject_id == 115908
-    assert mapping.find_work("ユーフォニアム").subject_id == 115908
+    assert mapping.resolve_works("上低音号")[0].subject_id == 115908
+    assert mapping.resolve_works("ユーフォニアム")[0].subject_id == 115908
     # 俗名不再命中：别名索引已删，只有官方名的子串能解析（LLM 负责归一化）
-    assert mapping.find_work("京吹") is None
-    assert mapping.find_work("ゆるキャン").subject_id == 216134
-    assert mapping.find_work("不存在的作品") is None
+    assert mapping.resolve_works("京吹") == []
+    assert mapping.resolve_works("ゆるキャン")[0].subject_id == 216134
+    assert mapping.resolve_works("不存在的作品") == []
 
 
 # --- AnitabiSeichiRepository 的两种显式结果 ---

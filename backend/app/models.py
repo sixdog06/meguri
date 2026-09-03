@@ -71,7 +71,7 @@ class AnimeWorkRow(Base):
     是作品名解析（作品名 → subjectID）的数据源。
 
     数据来源是 Git 里的 data/works/anime-1990plus.json（ingest_bangumi 产物），
-    经 app.rag.ingest_works 幂等 upsert 进本表——表是可重建的派生物。
+    经 app.ingest_works 幂等 upsert 进本表——表是可重建的派生物。
     *_norm 列是去掉空白后的名字（"轻音少女第二季" 与 "轻音少女 第二季"
     等价匹配靠它，trigram 索引建在 norm 列上）。
     """
@@ -84,7 +84,6 @@ class AnimeWorkRow(Base):
     name_norm: Mapped[str] = mapped_column(Text, default="")
     name_cn_norm: Mapped[str] = mapped_column(Text, default="")
     air_date: Mapped[str] = mapped_column(String(16), default="")
-    summary: Mapped[str] = mapped_column(Text, default="")  # RAG 语料（作品简介）
 
     __table_args__ = (
         Index(

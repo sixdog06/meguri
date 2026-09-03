@@ -6,6 +6,7 @@ import type { Feature } from 'geojson'
 import type { Itinerary, SeichiCandidate } from '../types'
 import { dayColor } from '../types'
 import { pointUrl } from '../gmaps'
+import { escapeHtml } from '../escape'
 
 /** 行程面板点名的定位目标：seq 递增保证同一点重复点击也能触发。 */
 export interface MapFocus {
@@ -28,12 +29,6 @@ const ROUTE_SOURCE = 'itinerary-route'
 
 function markerKey(s: SeichiCandidate): string {
   return String(s.id ?? s.name)
-}
-
-function escapeHtml(text: string): string {
-  const div = document.createElement('div')
-  div.textContent = text
-  return div.innerHTML
 }
 
 function popupHtml(s: SeichiCandidate): string {

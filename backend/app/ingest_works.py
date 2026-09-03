@@ -1,7 +1,7 @@
 """anime_works 表灌库：data/works/anime-1990plus.json（Bangumi 离线索引，Git 里的源
 artifact）→ DB 服务层。幂等 upsert（按 subject_id），可反复跑。
 
-用法：.venv/bin/python -m app.rag.ingest_works
+用法：.venv/bin/python -m app.ingest_works
 （从仓库根运行，读 .env.local 的 MEGURI_DATABASE_URL；或显式传环境变量）
 """
 
@@ -13,8 +13,8 @@ from sqlalchemy.orm import Session
 from app.db import _get_engine
 from app.models import AnimeWorkRow
 
-# 本文件上三级 = 仓库根（backend/app/rag/ingest_works.py → rag/app/backend → 根）
-_WORKS_INDEX_PATH = Path(__file__).resolve().parents[3] / "data/works/anime-1990plus.json"
+# 本文件上三级 = 仓库根（backend/app/ingest_works.py → app/backend → 根）
+_WORKS_INDEX_PATH = Path(__file__).resolve().parents[2] / "data/works/anime-1990plus.json"
 
 
 def _norm(name: str) -> str:
@@ -36,7 +36,6 @@ def load_works(path: Path = _WORKS_INDEX_PATH) -> int:
             "name_norm": _norm(name),
             "name_cn_norm": _norm(name_cn),
             "air_date": str(item.get("air_date") or ""),
-            "summary": str(item.get("summary") or ""),
         }
         for item in items
     ]
@@ -46,7 +45,7 @@ def load_works(path: Path = _WORKS_INDEX_PATH) -> int:
         set_={c: getattr(stmt.excluded, c) for c in rows[0] if c != "subject_id"},
     )
     with Session(_get_engine()) as session:
-        # 分批防单条语句参数过多（每行 7 参数，PG 上限 65535）
+        # 分批防单条语句参数过多（每行 6 参数，PG 上限 65535）
         for i in range(0, len(rows), 5000):
             session.execute(stmt, rows[i : i + 5000])
         session.commit()

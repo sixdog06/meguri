@@ -5,6 +5,7 @@ import { crossDayLeg, dayTransitMinutes, formatMinutes, legBetween, legLabel, na
 import { dayColor } from '../types'
 import { routeUrl } from '../gmaps'
 import { exportItineraryPdf } from '../pdf'
+import NarrationBlock from './NarrationBlock.vue'
 
 const props = defineProps<{
   itinerary: Itinerary | null
@@ -167,17 +168,10 @@ function addStop(day: ItineraryDay) {
                 loading="lazy"
                 @error="onPhotoError(s)"
               />
-              <p v-if="narrationOf(displayDay, s.id)" class="narration">
-                {{ narrationOf(displayDay, s.id)!.text }}
-                <span v-if="narrationOf(displayDay, s.id)!.citation" class="citation">
-                  <template v-if="narrationOf(displayDay, s.id)!.citation!.url">
-                    来源：<a :href="narrationOf(displayDay, s.id)!.citation!.url!" target="_blank" rel="noopener">{{ narrationOf(displayDay, s.id)!.citation!.source }}</a>
-                  </template>
-                  <template v-else>
-                    来源：{{ narrationOf(displayDay, s.id)!.citation!.source }}
-                  </template>
-                </span>
-              </p>
+              <NarrationBlock
+                v-if="narrationOf(displayDay, s.id)"
+                :narration="narrationOf(displayDay, s.id)!"
+              />
               <!-- 编辑操作只在编辑模式出现，改动先落本地草稿，提交后才重规划 -->
               <div v-if="editMode" class="edit-ops">
                 <button title="上移" :disabled="i === 0" @click="moveStop(displayDay!, i, -1)">↑</button>
@@ -499,19 +493,7 @@ function addStop(day: ItineraryDay) {
   font-size: 0.7rem;
   margin-left: 0.25rem;
 }
-.narration {
-  margin: 0.3rem 0 0;
-  font-family: var(--font-serif);
-  color: var(--ink-soft);
-  font-size: 0.85rem;
-  line-height: 1.7;
-}
-.citation {
-  font-family: var(--font-sans);
-  color: var(--ink-faint);
-  font-size: 0.72rem;
-  margin-left: 0.4rem;
-}
+/* 讲解样式在 NarrationBlock.vue（scoped 样式不穿透子组件） */
 .edit-ops {
   display: inline-flex;
   gap: 0.3rem;

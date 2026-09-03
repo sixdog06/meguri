@@ -1,8 +1,8 @@
-"""SeichiRepository 的离线数据包实现（seichi_mode=file；兼作 live 模式的 ID 映射源）。
+"""SeichiRepository 的离线数据包实现（seichi_mode=file；兼作 live 模式的兜底包来源）。
 
-本地 ID 库与圣地数据（全部为离线灌库产物，运行时不触网）：
-- data/works/anime-1990plus.json：Bangumi 全量动画索引（作品 ID 空间，
-  find_work 按 name/name_cn 匹配——这是运行时唯一的作品名解析来源）；
+本地作品索引与圣地数据（全部为离线灌库产物，运行时不触网）：
+- data/works/anime-1990plus.json：Bangumi 全量动画索引（file 模式下
+  resolve_works 按 name/name_cn 匹配；live 模式的解析走 anime_works 表）；
 - data/seichi/<subjectID>.json：{subject_id, work, city, points: [...Seichi 字段]}。
 
 缺文件一律优雅降级为空结果（不报错）。相对路径以仓库根目录解析
@@ -89,11 +89,6 @@ class FileSeichiRepository:
                 city=str(data.get("city") or "") if data else "",
             ))
         return refs
-
-    def find_work(self, work: str) -> WorkRef | None:
-        """单个作品解析：resolve_works 的首个命中（名字最短者）；无命中返回 None。"""
-        refs = self.resolve_works(work)
-        return refs[0] if refs else None
 
     def search_seichi(self, work: str, area: str) -> list[Seichi]:
         """数据包内检索：解析全部命中作品 → 逐包取点按地区宽松过滤 → 合并。

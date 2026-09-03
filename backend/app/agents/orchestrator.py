@@ -9,8 +9,6 @@ LLM 网关的 wire format（约定，见 _parse_llm_output / _system_prompt）�
 - 工具调用：一行 JSON `{"type": "tool_call", "name": "<tool>", "args": {...}}`
 - 最终回复：**纯文本/Markdown 正文**（不包 JSON）——这样网关流式回调的
   增量文本可以逐字推 SSE 上屏（JSON 包装没法边收边显示）。
-兼容兜底：模型仍按旧格式输出 `{"type": "final", "content": ...}`（含未闭合/
-截断的残次 JSON）时提取 content；其余非 JSON 一律按 final 原文。
 """
 
 import json
@@ -45,29 +43,9 @@ def _extract_json(raw: str) -> str:
     return text
 
 
-def _extract_truncated_final(raw: str) -> str | None:
-    """从未闭合/截断的 final JSON 里抢救 content（真实模型偶发，曾导致
-    原始 JSON 整串上屏）；不像 final JSON 时返回 None。"""
-    text = raw.strip()
-    match = re.search(
-        r'\{\s*"type"\s*:\s*"final"\s*,\s*"content"\s*:\s*"(.*)', text, re.DOTALL
-    )
-    if not match:
-        return None
-    inner = match.group(1).rstrip()
-    # 去掉可能的收尾残片（闭合引号/花括号）
-    if inner.endswith('"}'):
-        inner = inner[:-2]
-    elif inner.endswith('"'):
-        inner = inner[:-1]
-    try:  # 含 \n \" 等合法转义：借 JSON 解码（真实换行先转义防炸）
-        return json.loads('"' + inner.replace("\n", "\\n") + '"')
-    except json.JSONDecodeError:  # 转义本身也残了：手工解最常见的几种
-        return inner.replace("\\n", "\n").replace('\\"', '"').replace("\\\\", "\\")
-
-
 def _parse_llm_output(raw: str) -> dict[str, Any]:
-    """解析网关输出为 {"type": "final" | "tool_call", ...}；非 JSON 视为 final 原文。"""
+    """解析网关输出：合法的 tool_call/final JSON 按类型处理；其余一律视为
+    最终回复原文（纯文本，见模块头的 wire format 约定）。"""
     for candidate in (raw, _extract_json(raw)):
         try:
             data = json.loads(candidate)
@@ -75,9 +53,6 @@ def _parse_llm_output(raw: str) -> dict[str, Any]:
             continue
         if isinstance(data, dict) and data.get("type") in ("final", "tool_call"):
             return data
-    truncated = _extract_truncated_final(raw)
-    if truncated is not None:
-        return {"type": "final", "content": truncated}
     return {"type": "final", "content": raw}
 
 

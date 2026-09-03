@@ -19,43 +19,43 @@ DATA_DIR = "data/seichi"  # 仓库内置真实数据包（相对仓库根解析�
 # --- FileSeichiRepository 单测 ---
 
 
-def test_find_work_关键词匹配():
+def test_resolve_works_关键词匹配():
     repo = FileSeichiRepository(DATA_DIR)
 
     for keyword in ("上低音号", "吹响吧！上低音号", "響け！ユーフォニアム"):
-        ref = repo.find_work(keyword)
-        assert ref is not None
-        assert ref.subject_id == 115908
-        assert ref.name == "吹响吧！上低音号"
-        assert ref.city == "宇治市"
+        refs = repo.resolve_works(keyword)
+        assert refs, keyword
+        assert refs[0].subject_id == 115908
+        assert refs[0].name == "吹响吧！上低音号"
+        assert refs[0].city == "宇治市"
 
 
-def test_find_work_未收录作品返回None():
-    assert FileSeichiRepository(DATA_DIR).find_work("完全不存在的作品xyz") is None
+def test_resolve_works_未收录作品返回空():
+    assert FileSeichiRepository(DATA_DIR).resolve_works("完全不存在的作品xyz") == []
 
 
-def test_find_work_多季作品具体季优先且忽略空白():
+def test_resolve_works_多季作品具体季优先且忽略空白():
     """全量索引子串匹配：具体季查询词比总名长，不会被一期截胡；查询词与
     索引名两侧的空白都忽略（"轻音少女第二季" 也能命中 "轻音少女 第二季"）。"""
     repo = FileSeichiRepository(DATA_DIR)
 
-    assert repo.find_work("轻音少女 剧场版").subject_id == 12426
-    assert repo.find_work("轻音少女第二季").subject_id == 3774
-    assert repo.find_work("轻音少女").subject_id == 1424  # 不带季词落回一期（最短名）
+    assert repo.resolve_works("轻音少女 剧场版")[0].subject_id == 12426
+    assert repo.resolve_works("轻音少女第二季")[0].subject_id == 3774
+    assert repo.resolve_works("轻音少女")[0].subject_id == 1424  # 不带季词一期居首（最短名）
 
 
-def test_find_work_空或纯空白输入返回None(tmp_path):
-    """空查询包含于任何字符串，会误命中索引首条——必须直接 None。"""
+def test_resolve_works_空或纯空白输入返回空(tmp_path):
+    """空查询包含于任何字符串，会误命中全部——必须直接返回空。"""
     works = tmp_path / "anime-2000plus.json"
     works.write_text(json.dumps([{"id": 1, "name": "X", "name_cn": "Y"}]))
     repo = FileSeichiRepository(data_dir=str(tmp_path), works_file=str(works))
 
-    assert repo.find_work("") is None
-    assert repo.find_work("   ") is None
+    assert repo.resolve_works("") == []
+    assert repo.resolve_works("   ") == []
 
 
 def test_works索引只读一次盘(tmp_path, monkeypatch):
-    """9MB 全量索引进程内缓存：连续 find_work 不重复读盘（mtime 未变）。"""
+    """9MB 全量索引进程内缓存：连续 resolve_works 不重复读盘（mtime 未变）。"""
     works = tmp_path / "anime-2000plus.json"
     works.write_text(json.dumps([
         {"id": 1, "name": "A", "name_cn": "甲"},
@@ -74,8 +74,8 @@ def test_works索引只读一次盘(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "read_text", counting_read_text)
     repo = FileSeichiRepository(data_dir=str(tmp_path), works_file=str(works))
 
-    repo.find_work("甲")
-    repo.find_work("乙")
+    repo.resolve_works("甲")
+    repo.resolve_works("乙")
 
     assert len(read_calls) == 1  # 第二次命中缓存
 
@@ -84,7 +84,7 @@ def test_works索引_mtime变化才重读(tmp_path):
     works = tmp_path / "anime-2000plus.json"
     works.write_text(json.dumps([{"id": 1, "name": "A", "name_cn": "甲"}]))
     repo = FileSeichiRepository(data_dir=str(tmp_path), works_file=str(works))
-    assert repo.find_work("甲") is not None
+    assert repo.resolve_works("甲")
 
     import os, time
 
@@ -92,19 +92,19 @@ def test_works索引_mtime变化才重读(tmp_path):
     os.utime(works)  # mtime 变化 → 重读
     works.write_text(json.dumps([{"id": 1, "name": "A", "name_cn": "改"}]))
     os.utime(works)
-    assert repo.find_work("改") is not None
+    assert repo.resolve_works("改")
 
 
 def test_缺数据目录优雅降级为空(tmp_path):
     # works_file 也指向缺失路径：缺省会回退到仓库内置全量索引（能解析作品名）
     repo = FileSeichiRepository(str(tmp_path), works_file=str(tmp_path / "none.json"))
 
-    assert repo.find_work("上低音号") is None
+    assert repo.resolve_works("上低音号") == []
     assert repo.search_seichi("上低音号", "宇治") == []
 
 
-def test_find_work_多个包含匹配取最短名(tmp_path):
-    """查"你的名字"应命中《你的名字。》而非名字更长的《死神剧场版 …呼唤着你的名字》。"""
+def test_resolve_works_多个包含匹配短名在前(tmp_path):
+    """查"你的名字"应《你的名字。》居首，而非名字更长的《死神剧场版 …呼唤着你的名字》。"""
     works = tmp_path / "works.json"
     works.write_text(json.dumps([
         {"id": 2875, "name": "死神剧场版 消逝于黑暗中 呼唤着你的名字", "name_cn": ""},
@@ -112,10 +112,10 @@ def test_find_work_多个包含匹配取最短名(tmp_path):
     ]))
     repo = FileSeichiRepository(data_dir=str(tmp_path), works_file=str(works))
 
-    ref = repo.find_work("你的名字")
+    refs = repo.resolve_works("你的名字")
 
-    assert ref is not None
-    assert ref.subject_id == 32281
+    assert refs
+    assert refs[0].subject_id == 32281
 
 
 def test_search_seichi_返回真实数据切片():
@@ -180,8 +180,12 @@ def test_search_seichi_单作品无歧义时行为不变():
 
 def test_file数据包驱动三天行程():
     """file repo 走 HTTP 缝：'宇治三天京吹' → 真实 8 圣地的 3 天行程。"""
-    # LLM 用启发式测试替身（生产已无 fake 装配，测试经 override 显式注入）
-    app.dependency_overrides[get_llm_gateway] = lambda: FakeLLMGateway()
+    # LLM 用脚本化测试替身（生产已无 fake 装配，测试经 override 显式注入）
+    app.dependency_overrides[get_llm_gateway] = lambda: FakeLLMGateway(scripted=[
+        json.dumps({"type": "tool_call", "name": "plan_itinerary",
+                    "args": {"ani_name": "吹响吧！上低音号", "area": "宇治", "days": 3}}),
+        json.dumps({"type": "final", "content": "三天行程已生成"}),
+    ])
     app.dependency_overrides[get_seichi_repository] = lambda: FileSeichiRepository(DATA_DIR)
     client = TestClient(app)
     cid = client.post("/api/conversations").json()["conversation_id"]

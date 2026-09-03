@@ -23,6 +23,7 @@ from curl_cffi.requests.exceptions import RequestException
 
 from app.adapters.file_seichi import FileSeichiRepository
 from app.adapters.ports import Seichi, SeichiRepository, WorkRef
+from app.geo import haversine_km
 
 ANITABI_BASE_URL = "https://api.anitabi.cn"
 
@@ -75,15 +76,6 @@ def area_matches(area: str, city: str) -> bool:
 # 单点距作品主城市的上限：anitabi 数据偶有污染点（如 K-ON! 里混进柏林的
 # 勃兰登堡门），超过即丢弃；200km 容得下"由良川橋"这类 ~65km 的日归点。
 _MAX_POINT_DISTANCE_KM = 200.0
-
-
-def _haversine_km(a: list[float], b: list[float]) -> float:
-    """两个 [lat, lng] 的球面距离（km）。"""
-    from math import asin, cos, radians, sin, sqrt
-
-    lat1, lng1, lat2, lng2 = (radians(x) for x in (a[0], a[1], b[0], b[1]))
-    h = sin((lat2 - lat1) / 2) ** 2 + cos(lat1) * cos(lat2) * sin((lng2 - lng1) / 2) ** 2
-    return 2 * 6371 * asin(sqrt(h))
 
 
 _DEBUG_POINTS_FILE = Path(__file__).with_name("debug_anitabi_points.json")
@@ -179,7 +171,7 @@ class AnitabiClient:
             if not geo:
                 continue
             # 距主城市过远的点视为数据污染（如混进的海外点），丢弃
-            if center and _haversine_km(center, geo) > _MAX_POINT_DISTANCE_KM:
+            if center and haversine_km(center[0], center[1], geo[0], geo[1]) > _MAX_POINT_DISTANCE_KM:
                 continue
             results.append(
                 Seichi(
@@ -232,11 +224,6 @@ class AnitabiSeichiRepository:
         """作品名 → 全部命中作品：经解析器（live=anime_works 表，否则本地索引）。"""
         return self._resolver.resolve_works(work)
 
-    def find_work(self, work: str) -> WorkRef | None:
-        """作品名 → WorkRef：resolve_works 的首个命中（名字最短者）。"""
-        refs = self._resolver.resolve_works(work)
-        return refs[0] if refs else None
-
     def search_seichi(self, work: str, area: str) -> list[Seichi]:
         """解析全部命中作品 → 逐作品 anitabi 实时拉取 → 地区过滤 → 合并。
 
@@ -247,7 +234,7 @@ class AnitabiSeichiRepository:
         """
         self.fallback_notice = None
         self.out_of_area = []
-        refs = self._resolver.resolve_works(work)  # 与 resolve_works/find_work 同一解析路径
+        refs = self._resolver.resolve_works(work)
         if not refs:
             return []
 

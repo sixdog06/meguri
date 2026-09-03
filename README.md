@@ -28,7 +28,7 @@ cp .env.example .env.local   # 填入 MEGURI_OPENAI_API_KEY
 首次启动后需要灌入作品目录（Bangumi 全量动画索引，19144 条，作品名解析的数据源）：
 
 ```bash
-docker compose exec backend python -m app.rag.ingest_works
+docker compose exec backend python -m app.ingest_works
 ```
 
 未配置 key 时服务可以正常启动，但对话请求会返回"模型服务暂时不可用"。

@@ -5,15 +5,8 @@
 
 import { crossDayLeg, dayTransitMinutes, formatMinutes, legBetween, legLabel, narrationOf } from './itinerary'
 import { dayColor, type Itinerary } from './types'
+import { escapeHtml } from './escape'
 import logoUrl from './assets/logo.png'
-
-/** 动态文本一律 HTML 转义后再拼接，防注入/断标签。 */
-function escapeHtml(s: string): string {
-  return s.replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c,
-  )
-}
 
 /** 生成打印用 HTML（纸质风：白底、黑灰文字、细分割线）。 */
 function buildHtml(itinerary: Itinerary): string {

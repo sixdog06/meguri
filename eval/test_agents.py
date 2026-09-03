@@ -154,7 +154,7 @@ def works_resolver():
     """真实全量索引（19144 条）灌进测试库 anime_works 表后的 DB 解析器。"""
     from app.adapters.works_db import DbWorksResolver
     from app.db import _get_engine
-    from app.rag.ingest_works import load_works
+    from app.ingest_works import load_works
 
     load_works()
     return DbWorksResolver(_get_engine())

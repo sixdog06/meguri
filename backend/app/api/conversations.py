@@ -258,19 +258,24 @@ def post_message(
     )
 
 
+def _latest_itinerary_row(conversation_id: uuid.UUID, session: Session) -> Itinerary | None:
+    """会话最新一份行程快照行（没有则 None）；前置校验会话存在。"""
+    _get_conversation_or_404(conversation_id, session)
+    return (
+        session.query(Itinerary)
+        .filter_by(conversation_id=conversation_id)
+        .order_by(Itinerary.created_at.desc(), Itinerary.id.desc())  # id 作次序 tiebreak
+        .first()
+    )
+
+
 @router.get("/{conversation_id}/itinerary", response_model=ItineraryResponse)
 def get_itinerary(
     conversation_id: uuid.UUID = Depends(valid_conversation_id),
     session: Session = Depends(get_session),
 ) -> ItineraryResponse:
     """读取会话最新一份行程快照（刷新页面后恢复行程视图）；没有则为 null。"""
-    _get_conversation_or_404(conversation_id, session)
-    row = (
-        session.query(Itinerary)
-        .filter_by(conversation_id=conversation_id)
-        .order_by(Itinerary.created_at.desc(), Itinerary.id.desc())  # id 作次序 tiebreak
-        .first()
-    )
+    row = _latest_itinerary_row(conversation_id, session)
     # 空快照（{}）是规划失败的占位，对外等价于“没有行程”
     return ItineraryResponse(itinerary=(row.payload or None) if row else None)
 
@@ -283,13 +288,7 @@ class CandidatesResponse(BaseModel):
 
 def _latest_itinerary_payload(conversation_id: uuid.UUID, session: Session) -> dict:
     """最新一份有效（非占位）行程快照 payload；没有则 404。"""
-    _get_conversation_or_404(conversation_id, session)
-    row = (
-        session.query(Itinerary)
-        .filter_by(conversation_id=conversation_id)
-        .order_by(Itinerary.created_at.desc(), Itinerary.id.desc())  # id 作次序 tiebreak
-        .first()
-    )
+    row = _latest_itinerary_row(conversation_id, session)
     if row is None or not row.payload:
         raise HTTPException(status_code=404, detail="当前会话没有行程快照")
     return row.payload

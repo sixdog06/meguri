@@ -267,18 +267,4 @@ def test_重新规划失败后旧快照不复活():
 
     fresh_client = TestClient(app)
     assert fresh_client.get(f"/api/conversations/{conversation_id}/itinerary").json()["itinerary"] is None
-
-
-@pytest.mark.parametrize("text", ["宇治三天京吹", "宇治3天京吹", "京吹 三天"])
-def test_启发式fake_LLM识别天数请求触发规划(text):
-    """dev 演示路径：不 scripted 的 FakeLLMGateway 识别“N 天”+作品关键词。"""
-    repo = FakeSeichiRepository(seichi=FIXTURE)
-    app.dependency_overrides[get_llm_gateway] = lambda: FakeLLMGateway()  # 无脚本
-    app.dependency_overrides[get_seichi_repository] = lambda: repo
-    client = TestClient(app)
-    conversation_id = create_conversation(client)
-
-    body = post_message(client, conversation_id, text)
-
-    assert body["itinerary"]["day_count"] == DAYS
     assert "3 天" in body["reply"] or "三天" in body["reply"]

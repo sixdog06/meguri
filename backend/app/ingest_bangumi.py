@@ -2,7 +2,8 @@
 
 用 Bangumi v0 API（https://bangumi.github.io/api/）拉 type=2（动画）且
 air_date >= 1990-01-01 的全部作品，存成本地 JSON（data/works/anime-1990plus.json），
-字段 {id, name, name_cn, air_date, summary}——summary 后续给 RAG 当语料。
+字段 {id, name, name_cn, air_date, summary}——summary 保留在源 JSON 里备用
+（当前 DB 只灌名字字段，见 app.ingest_works）。
 
 工程要点：
 - 自定义 User-Agent（bgm.tv API 强制要求），限速每秒 ≤2 请求防 ban；

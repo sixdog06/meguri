@@ -28,8 +28,8 @@ def resolver():
             conn.execute(
                 text(
                     "INSERT INTO anime_works (subject_id, name, name_cn, name_norm,"
-                    " name_cn_norm, air_date, summary)"
-                    " VALUES (:id, :name, :name_cn, :nn, :ncn, '', '')"
+                    " name_cn_norm, air_date)"
+                    " VALUES (:id, :name, :name_cn, :nn, :ncn, '')"
                 ),
                 {
                     "id": subject_id,

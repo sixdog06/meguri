@@ -81,14 +81,8 @@ class SearchSeichiTool:
             self.structured = []
             self.notice = str(exc)
             return f"《{work}》没有圣地巡礼数据（不是检索失败，是该作品在 anitabi 无记录）"
-        # 离线兜底提示（约定通道）：live 源故障降级到本地数据包时如实告知用户
-        fallback = getattr(self._repository, "fallback_notice", None)
-        if fallback:
-            self.notice = fallback
-        # 区域外摘要（约定通道）：被地区过滤滤掉的作品要告知用户"以后可去"
-        out_of_area = getattr(self._repository, "out_of_area", None) or []
-        if out_of_area:
-            self.out_of_area = out_of_area
+        # 同步 repository 的约定通道（离线兜底 notice / 区域外摘要）
+        out_of_area = _sync_repo_channels(self, self._repository)
         if not self.structured:
             if out_of_area:
                 return (
@@ -107,6 +101,18 @@ def _format_out_of_area(out_of_area: list[dict]) -> str:
     return "、".join(
         f"《{item['work']}》{item['city']} {item['count']} 处" for item in out_of_area
     )
+
+
+def _sync_repo_channels(tool: Any, repository: SeichiRepository) -> list[dict]:
+    """把 repository 的约定通道同步到工具属性（离线兜底提示 → notice，
+    区域外摘要 → out_of_area），返回 out_of_area 供观察文本用。"""
+    fallback = getattr(repository, "fallback_notice", None)
+    if fallback:
+        tool.notice = fallback
+    out_of_area = getattr(repository, "out_of_area", None) or []
+    if out_of_area:
+        tool.out_of_area = out_of_area
+    return out_of_area
 
 
 def _search_observation(seichi: list[Seichi], out_of_area: list[dict]) -> dict:
@@ -189,16 +195,9 @@ class PlanItineraryTool:
             self.notice = str(exc)
             self.structured = None
             return f"《{work}》没有圣地巡礼数据，无法规划行程（该作品在 anitabi 无记录，不是检索失败）"
-        # 离线兜底提示（约定通道）：live 源故障降级到本地数据包时如实告知用户
-        fallback = getattr(self._repository, "fallback_notice", None)
-        if fallback:
-            self.notice = fallback
-        # 区域外摘要（约定通道）：只进 out_of_area 通道（payload + 观察文本里
-        # 附告知指令，由模型在回复正文里转告用户），不进 notice——
-        # 用户拍板：这类提示在聊天流里看，不弹 toast
-        out_of_area = getattr(self._repository, "out_of_area", None) or []
-        if out_of_area:
-            self.out_of_area = out_of_area
+        # 同步 repository 的约定通道（离线兜底 notice / 区域外摘要）；
+        # out_of_area 只进通道和观察文本，不进 notice（在聊天流里看，不弹 toast）
+        out_of_area = _sync_repo_channels(self, self._repository)
         if not seichi:
             self.structured = None
             if out_of_area:

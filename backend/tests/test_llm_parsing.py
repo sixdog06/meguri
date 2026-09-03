@@ -7,9 +7,11 @@ from app.agents.orchestrator import _parse_llm_output, _system_prompt
 from app.agents.tools import PlanItineraryTool, SearchSeichiTool, ToolRegistry
 
 
-def test_解析带markdown_fence的JSON():
-    raw = '```json\n{"type": "final", "content": "好的"}\n```'
-    assert _parse_llm_output(raw) == {"type": "final", "content": "好的"}
+def test_解析带markdown_fence的tool_call():
+    raw = '```json\n{"type": "tool_call", "name": "search_seichi", "args": {"ani_name": "w"}}\n```'
+    result = _parse_llm_output(raw)
+    assert result["type"] == "tool_call"
+    assert result["name"] == "search_seichi"
 
 
 def test_解析带前后散文的JSON():
@@ -23,13 +25,10 @@ def test_解析纯文本兜底为final():
     assert _parse_llm_output("今天天气不错") == {"type": "final", "content": "今天天气不错"}
 
 
-def test_解析未闭合的final_JSON提取content():
-    """真实模型偶发未闭合/截断的 final JSON（曾整串上屏）：抢救 content。"""
-    raw = '{"type": "final", "content": "已帮你检索到《轻音少女》。\\n\\n## 第1天：修学院'
-    assert _parse_llm_output(raw) == {
-        "type": "final",
-        "content": "已帮你检索到《轻音少女》。\n\n## 第1天：修学院",
-    }
+def test_非tool_call的JSON也按类型解析():
+    """形态完整的 {"type": "final", ...} JSON 仍按 final 解析（测试脚本在用）。"""
+    raw = '{"type": "final", "content": "好的"}'
+    assert _parse_llm_output(raw) == {"type": "final", "content": "好的"}
 
 
 def test_system_prompt含动态工具清单():
