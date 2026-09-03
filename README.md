@@ -39,7 +39,7 @@ docker compose exec backend python -m app.rag.ingest_works
 
 ### 一次 Agent Loop 怎么走
 
-自研最小 ReAct 循环（ADR-0002，刻意不引入 Agent 框架），代码在 `backend/app/agents/orchestrator.py`：
+自研最小 ReAct 循环（刻意不引入 Agent 框架，控制流全透明），代码在 `backend/app/agents/orchestrator.py`：
 
 1. 用户消息先落库（`messages` 表），SSE 推 `received`
 2. 组装上下文：system prompt（角色 + 动态工具清单 + 线格式约定）+ 该会话全量历史
@@ -145,7 +145,7 @@ cd backend && ../.venv/bin/python -m pytest   # 行为测试经 FastAPI TestClie
 - **作品 ID 空间来自 Bangumi 全量索引**：`python -m app.ingest_bangumi` 用 Bangumi v0 API（自定义 UA、限速 ≤2 req/s、按年 checkpoint 断点续传）拉 1990 年后全部动画 → `data/works/anime-1990plus.json`（Git 里的源 artifact）；再经 `python -m app.rag.ingest_works` 幂等 upsert 进 **anime_works 表**（DB 是运行时的服务层，JSON 可重建）
 - **区域过滤即显式排除**：被地区过滤整部作品滤掉的进 `out_of_area`，由模型在回复正文里告知用户，不弹 toast、不静默丢弃
 
-交通（#6）：走本地 OTP（`MEGURI_OTP_BASE_URL` 指向服务）；OTP 未启动时 Navigator 自动降级为估算段（leg 带"降级"标记），不会报错。
+交通：走本地 OTP（`MEGURI_OTP_BASE_URL` 指向服务）；OTP 未启动时 Navigator 自动降级为估算段（leg 带"降级"标记），不会报错。
 
 ## OTP 交通图（宇治/京都）
 
@@ -159,7 +159,7 @@ docker compose up -d otp   # 起 OTP 服务（:8081）
 
 GTFS（公共交通换乘/时刻表）：京都市営バス/地下鉄的 GTFS-JP 只发布在公共交通オープンデータセンター（ODPT），需免费注册拿 consumerKey（见 `otp/download.sh` 头部注释），把 zip 放进 `otp/data/` 后 `otp/build.sh --force` 重建即可。没有 GTFS 时 graph 只含路网：步行/车程为真实 OSM 路网耗时，换乘查询返回"未覆盖"降级。已知覆盖缺口：宇治的 JR 奈良线、京阪宇治线（无公开 GTFS）及京都市营巴士/地铁（需注册）。
 
-## 讲解（#8 Storyteller，语料库已下线）
+## 讲解（Storyteller，语料库已下线）
 
 早期版本有 RAG 语料库（`corpus_chunks` 表 + pgvector/pg_trgm 混合检索），后来发现是空转：anitabi 地标没有自由文本字段，语料是把 planner 已有的站点元数据拼成句子绕一圈再检索回来，不产生新信息——已删除（表、embedding 依赖、灌库脚本一并退役）。
 
@@ -174,4 +174,4 @@ npm run dev          # vite dev server，/api 代理到 localhost:8000
 npm run type-check   # vue-tsc
 ```
 
-领域术语见 `CONTEXT.md`，架构决策见 `docs/adr/`，产品 spec 见 GitHub issue #1。
+领域术语见 `CONTEXT.md`。
