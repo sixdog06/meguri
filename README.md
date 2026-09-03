@@ -22,7 +22,7 @@
 
 ```bash
 cp .env.example .env.local   # 编辑，填入 MEGURI_OPENAI_API_KEY
-./start.sh                   # 构建并启动 db + backend + web（OTP 可选，见下）
+./start.sh                   # 构建并启动 db + backend + web
 ```
 
 访问 http://localhost:8080 （web = nginx 静态前端 + `/api` 反代到后端）。
@@ -122,56 +122,3 @@ golden 数据集 + 确定性规则判卷，显式运行（与后端行为测试�
 
 诚实边界：真 LLM judge（校验生成内容是否编造事实）还是 stub；LLM 的工具决策质量（真实模型表现）不在评测范围。
 
-## 本地开发
-
-LLM 配置（真实模型）：把 key 写进仓库根的 `.env.local`（已 gitignore，勿提交）：
-
-```bash
-MEGURI_OPENAI_API_KEY=...
-MEGURI_OPENAI_BASE_URL=https://api.kimi.com/coding/v1
-MEGURI_OPENAI_MODEL=kimi-for-coding
-```
-
-后端（Python 3.11+）：
-
-```bash
-python3.11 -m venv .venv
-.venv/bin/pip install -r backend/requirements-dev.txt
-cd backend && ../.venv/bin/python -m pytest   # 行为测试经 FastAPI TestClient（HTTP 缝）
-.venv/bin/uvicorn app.main:app --reload --app-dir backend
-```
-
-注意：圣地数据源默认 `seichi_mode=live`，裸跑 dev 会访问外部网络（api.anitabi.cn）；要完全离线可设 `MEGURI_SEICHI_MODE=file`（本地数据包；测试环境默认即 file）。
-
-**数据层架构**：
-- **作品 ID 空间来自 Bangumi 全量索引**：`python -m app.ingest_bangumi` 用 Bangumi v0 API（自定义 UA、限速 ≤2 req/s、按年 checkpoint 断点续传）拉 1990 年后全部动画 → `data/works/anime-1990plus.json`（Git 里的源 artifact）；再经 `python -m app.rag.ingest_works` 幂等 upsert 进 **anime_works 表**（DB 是运行时的服务层，JSON 可重建）
-- **区域过滤即显式排除**：被地区过滤整部作品滤掉的进 `out_of_area`，由模型在回复正文里如实告知用户"本次未包含，以后可单独规划"
-
-交通：走本地 OTP（`MEGURI_OTP_BASE_URL` 指向服务）；OTP 未启动时 Navigator 自动降级为估算段（leg 带"降级"标记），不会报错。
-
-## OTP 交通图（宇治/京都）
-
-一次性构建 routing graph（幂等，可重复执行）：
-
-```bash
-otp/download.sh   # 下载 kansai OSM → osmium 裁剪京都/宇治 → otp/data/Kyoto.osm.pbf
-otp/build.sh      # docker 构建 graph.obj 并校验（吃内存，docker VM 建议 ≥ 6GB）
-docker compose up -d otp   # 起 OTP 服务（:8081）
-```
-
-GTFS（公共交通换乘/时刻表）：京都市営バス/地下鉄的 GTFS-JP 只发布在公共交通オープンデータセンター（ODPT），需免费注册拿 consumerKey（见 `otp/download.sh` 头部注释），把 zip 放进 `otp/data/` 后 `otp/build.sh --force` 重建即可。没有 GTFS 时 graph 只含路网：步行/车程为真实 OSM 路网耗时，换乘查询返回"未覆盖"降级。已知覆盖缺口：宇治的 JR 奈良线、京阪宇治线（无公开 GTFS）及京都市营巴士/地铁（需注册）。
-
-## 讲解（Storyteller）
-
-每站讲解直接由**站点自带元数据**（作品名/站名/出处集数/截图秒数）生成：无 LLM 时模板拼句，有 LLM 时生成 ≤100 字讲解（只许用给定元数据，失败回退模板）；citation 是 anitabi 截图来源署名（origin/origin_url，CC BY-NC-SA 要求的标注）。讲解的信息边界因此很清晰：只承诺"这是什么作品第几集的哪个地方"，不编造名场面内容。
-
-前端（Node 22+）：
-
-```bash
-cd frontend
-npm install
-npm run dev          # vite dev server，/api 代理到 localhost:8000
-npm run type-check   # vue-tsc
-```
-
-领域术语见 `CONTEXT.md`。
