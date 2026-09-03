@@ -39,7 +39,7 @@ docker compose exec backend python -m app.rag.ingest_works
 
 ### 一次 Agent Loop 怎么走
 
-自研最小 ReAct 循环（刻意不引入 Agent 框架，控制流全透明），代码在 `backend/app/agents/orchestrator.py`：
+自研最小 ReAct 循环（刻意不引入 Agent 框架，控制流全透明）：
 
 1. 用户消息先落库（`messages` 表），SSE 推 `received`
 2. 组装上下文：system prompt（角色 + 动态工具清单 + 线格式约定）+ 该会话全量历史
@@ -112,13 +112,13 @@ anitabi 故障且有离线包 → 降级离线数据包 + 提示"可能不是最
 
 ### 评测（eval/，不进 CI 门禁）
 
-golden 数据集（`eval/datasets/*.jsonl`）+ 确定性规则判卷（`RuleJudge`），显式运行：
+golden 数据集 + 确定性规则判卷，显式运行：
 
 ```bash
 .venv/bin/python -m pytest eval/ -v -s   # 需要 5433 的 Postgres（compose db）
 ```
 
-机制：每个 case 用假外部世界（脚本化 LLM + 内存假数据）驱动**完整真管线**（HTTP → ReAct 循环 → 工具 → 落库），对照标准答案打分。维度：Scout 检索命中率 / Planner 四规则（天数正确、每天非空、全覆盖、最近邻优于随机基线）/ Navigator 时间可行性（时刻单调）/ Storyteller 讲解接地（含站名、署名与站点 origin 一致）/ e2e 六项清单（含 trace 可观测性）/ work_resolve 作品名解析 8 例（打真实 PG 的 anime_works 表，标定 pg_trgm 阈值用）。数据集每例带 `rationale` 说明期望的独立依据；`eval/test_meta.py` 还测判卷规则自身（防"永远通过"的假把式）。
+机制：每个 case 用假外部世界（脚本化 LLM + 内存假数据）驱动**完整真管线**（HTTP → ReAct 循环 → 工具 → 落库），对照标准答案打分。维度：Scout 检索命中率 / Planner 四规则（天数正确、每天非空、全覆盖、最近邻优于随机基线）/ Navigator 时间可行性（时刻单调）/ Storyteller 讲解接地（含站名、署名与站点 origin 一致）/ e2e 六项清单（含 trace 可观测性）/ work_resolve 作品名解析 8 例（打真实 PG 的 anime_works 表，标定 pg_trgm 阈值用）。数据集每例都写明期望值的独立依据；判卷规则自身也有元测试（防"永远通过"的假把式）。
 
 诚实边界：真 LLM judge（生成内容事实性校验）是 stub；LLM 的工具决策质量（真实模型表现）不在评测范围。
 
